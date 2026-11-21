@@ -9,3 +9,9 @@ Pracujemy zgodnie z metodyką opisaną na https://workwithrondo.com (Rondo + Con
 - **Zasady inżynierskie** są w `MANIFEST.md` (na bazie Engineering essentials E1–E6 z workwithrondo.com). Obowiązują przy każdej specyfikacji. Odstępstwo trzeba nazwać i uzasadnić w sekcji „Additional Information”.
 - **Odtwarzalność.** Inny nowoczesny asystent AI powinien móc odbudować projekt z `specs/`, `CHANGELOG.md`, `README.md` i testów.
 - Artefakty i komunikacja po polsku.
+
+## Projekt
+
+- Budowanie: `go build -o bin/xordock ./cmd/xordock`. Testy: `go test -race ./...` (muszą przechodzić przed każdym commitem).
+- Karta SD do testów E2E: `/Volumes/xordock`. Na karcie zapisujemy tylko w `xordock/<nazwa-sejfu>`; testowe sejfy usuwamy po testach.
+- Stan bezpieczeństwa i otwarte znaleziska: `docs/bezpieczenstwo/` (najnowszy raport).

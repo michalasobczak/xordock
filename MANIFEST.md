@@ -9,7 +9,11 @@ Bazą są Engineering essentials z https://workwithrondo.com/#builders (E1–E6)
 **M1. Prostota.** Sprawdzone wzorce, jasne odpowiedzialności, tylko potrzebne abstrakcje.
 **M2. Bez duplikacji.** Wspólna logika w jednym miejscu; wyjątek uzasadniamy w specyfikacji.
 **M3. Stabilne technologie i minimum zależności.** Każda biblioteka i każda dodatkowa usługa (kolejka, NoSQL itp.) wymaga uzasadnienia.
-**Stack:** [DO USTALENIA]
+**Stack (S001):** Go 1.27 (biblioteka standardowa) + `golang.org/x/net/webdav`. macOS 27, Apple Silicon. Integracja z Finderem w prototypie: WebDAV + `mount_webdav`; docelowo S002.
+
+**M24. Jawne dane tylko w RAM.** Kod xordocka nigdy nie zapisuje jawnej treści ani nazw plików na dysk ani do logów. Bufory z treścią czyścimy (`split.Wipe`) po użyciu.
+**M25. Uczciwe deklaracje.** Każdy komunikat i dokument o bezpieczeństwie mówi, z jakiego źródła masek korzystamy; CSPRNG nigdy nie jest przedstawiany jako odporny na P = NP.
+**M26. Jeden udział, jedna suma.** Suma kontrolna obejmuje tylko własny udział. Nie zapisujemy na jednym nośniku niczego, co wyliczono z treści drugiego.
 
 ## E2. Kontrakty i dane
 
