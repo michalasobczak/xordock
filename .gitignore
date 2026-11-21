@@ -1,0 +1,6 @@
+.remember/
+.DS_Store
+.claude/
+.env
+.env.*
+!.env.example
