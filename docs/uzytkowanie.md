@@ -7,17 +7,15 @@
 ```bash
 go build -o bin/xordock ./cmd/xordock
 ./bin/xordock init --card /Volumes/xordock --name sejf
-./bin/xordock mount --name sejf
 ```
 
-Katalog pojawia się w `~/xordock/sejf` i w Finderze jako wolumen sieciowy `sejf`. Proces `mount` działa na pierwszym planie. Odmontowanie: Ctrl+C, „Wysuń” w Finderze albo `umount ~/xordock/sejf`.
+Montowanie w Finderze będzie dostępne po S002 (rozszerzenie FSKit).
 
 - Udział A: `~/Library/Application Support/xordock/sejf`
 - Udział B: `/Volumes/<karta>/xordock/sejf`. Kartę rozpoznajemy po identyfikatorze sejfu, nie po nazwie wolumenu.
 
 ## Karta SD
 
-- **Wyjęcie karty** w trakcie pracy odmontowuje katalog w ciągu sekundy. Pliki zamknięte przed wyjęciem są bezpieczne. Zmiany w plikach otwartych w tym momencie przepadają: aplikacja dostanie błąd.
 - **Utrata karty = utrata danych.** Kopia zapasowa: przy odmontowanym sejfie skopiuj katalog `/Volumes/<karta>/xordock/sejf` na drugą kartę i przechowuj ją w innym miejscu niż Maca. Kopia samego udziału A (np. Time Machine) **nie wystarczy** do odzyskania danych.
 - Karta wycofana z użytku: nadpisz ją w całości albo zniszcz. Zwykłe usunięcie plików nie usuwa masek z nośnika (F-04).
 - Zwykłą kartę SD da się skopiować. Nie jest to token sprzętowy.
@@ -26,7 +24,6 @@ Katalog pojawia się w `~/xordock/sejf` i w Finderze jako wolumen sieciowy `sejf
 
 xordock nie kontroluje innych programów. Nie obiecujemy, że usuwają swoje kopie.
 
-- **Cache agenta WebDAV macOS** (`/private/tmp/.webdavcache.*`): treść otwieranych plików trafia na SSD na czas montowania (F-01). Dlatego `mount` wymaga FileVault. Usunie to S002.
 - **Autozapis i pliki tymczasowe** aplikacji biurowych (często w `~/Library/Containers/…` albo `/private/var/folders/…`).
 - **Miniatury QuickLook i podglądy Findera** (`~/Library/Caches`, cache QuickLook).
 - **Ostatnie dokumenty**: nazwy plików w historii aplikacji i systemu.

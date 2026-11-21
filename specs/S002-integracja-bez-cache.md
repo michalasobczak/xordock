@@ -1,58 +1,69 @@
-# S002 — Integracja z macOS bez jawnego cache na dysku
+# S002 — Katalog w Finderze przez FSKit
 
-- **Status:** szkic — wymaga sesji specyfikacyjnej z właścicielem
+- **Status:** szkic — decyzja o technologii podjęta, reszta do sesji specyfikacyjnej
 - **Data:** 2026-11-22
-- **Powiązane:** S001 (F-01, F-02 w `docs/bezpieczenstwo/2026-11-22-runda-S001.md`)
+- **Powiązane:** S001 (F-01, F-02 w `docs/bezpieczenstwo/2026-11-22-runda-S001.md`), S003
 
 ## 1. TL;DR
 
-Zastąpić montowanie przez WebDAV takim, w którym jawna treść plików nie trafia na wewnętrzny SSD i do sejfu nie da się dostać przez gniazdo TCP. Potwierdzenie: test E2E nie znajduje treści testowej w żadnym pliku poza udziałami (także otwartym i usuniętym), a inny proces bez uprawnień nie może czytać sejfu.
+Sejf jest widoczny w Finderze jako zwykły wolumen dzięki natywnemu rozszerzeniu systemu plików macOS (FSKit), bez lokalnego serwera sieciowego i bez plików cache z jawną treścią na SSD. Potwierdzenie: wszystkie bramki S001 przechodzą przez nowy wolumen, a test E2E nie znajduje treści testowej poza RAM i udziałami.
 
 ## 2. Abstract
 
-Prototyp S001 montuje sejf przez lokalny serwer WebDAV i `mount_webdav`. Podczas E2E `lsof` pokazał, że `webdavfs_agent` trzyma treść plików w usuniętych plikach w `/private/tmp/.webdavcache.*` (F-01). Token dostępu jest widoczny w tablicy montowań (F-02). Obie luki łagodzą FileVault i model przeciwnika, ale nie spełniają intencji FR-24.
+Prototyp S001 montował sejf przez lokalny WebDAV. Analiza bezpieczeństwa wykazała, że agent WebDAV macOS zapisuje treść plików na SSD (F-01), a token dostępu widać w tablicy montowań (F-02).
 
-WebDAV wybrano, bo na stanowisku nie było Xcode (FSKit) i nie chcieliśmy rozszerzenia jądra (macFUSE).
+Historia decyzji (2026-11-22): rozważono NFS loopback (cache klienta w RAM). Prototyp serwera NFSv3 dotarł do próby montowania i został przerwany. Właściciel odrzucił NFS i WebDAV: integracja ma być natywna. Kod WebDAV i NFS usunięto, więc `xordock mount` nie istnieje. Wcześniej FSKit blokował brak Xcode; właściciel zainstalował Xcode 27.2.
+
+Zostawiono stałe numery plików w indeksie sejfu (`Entry.Ino`) i operacje po numerze (`ByIno`, `SetFileIno`, `Create`, `Remove`, `RenameReplacing`), bo FSKit identyfikuje elementy stałymi identyfikatorami.
 
 ## 3. Objective
 
-- **Cele:** integracja bez cache na dysku i bez dostępu przez TCP dla innych procesów; zachowanie wszystkich bramek S001.
-- **Poza zakresem:** zmiana formatu udziałów.
-- **Kryteria sukcesu:** F-01 i F-02 zamknięte w następnej analizie bezpieczeństwa.
+- **Cele:** rozszerzenie FSKit (moduł systemu plików) montujące sejf, aplikacja-kontener, która je dostarcza, obsługa karty jak w S001 (SC-02, FR-18).
+- **Poza zakresem:** zmiana formatu udziałów; akcja „Chroń kartą SD” w Finderze (S003).
+- **Kryteria sukcesu:** bramki CG-01–CG-11 z S001 przez wolumen FSKit; G1 i G2 poniżej; F-01 i F-02 zamknięte w następnej analizie bezpieczeństwa.
 
 ## 4. Artefact Inventory
 
 | Artefakt | Rodzaj | Stan |
 | --- | --- | --- |
-| `internal/mount` | kod | do zmiany |
-| `internal/davfs` | kod | do zmiany albo do usunięcia |
-| Xcode + Apple Developer ID (FSKit) | zewnętrzne | [DO USTALENIA] |
+| Xcode 27.2, macOS SDK 27.2 z FSKit | zewnętrzne | istnieje |
+| Certyfikat do podpisywania (Apple ID w Xcode → Personal Team albo Apple Developer Program) | zewnętrzne | [DO USTALENIA]: brak tożsamości do podpisu na stanowisku |
+| Uprawnienie `com.apple.developer.fskit.fsmodule` | zewnętrzne | [DO USTALENIA]: czy wystarczy darmowy Personal Team |
+| `internal/vault` (silnik sejfu w Go) | kod | istnieje |
+| Most Go → Swift (`go build -buildmode=c-archive`) | kod | do utworzenia (rekomendacja, zob. §9) |
+| Projekt Xcode: aplikacja + rozszerzenie FSKit (Swift) | kod | do utworzenia |
+| Włączenie rozszerzenia przez użytkownika (Ustawienia systemowe) | organizacja | do wykonania przez właściciela |
 
 ## 5. Functional Domain Changes
 
-[DO USTALENIA] Opcje do porównania:
+[DO USTALENIA] na sesji. Do rozstrzygnięcia:
 
-1. **FSKit** (natywne rozszerzenie systemu plików): brak kext, brak TCP, cache w RAM. Wymaga Xcode, podpisu i włączenia rozszerzenia przez użytkownika.
-2. **NFS loopback** (`mount_nfs` z lokalnym serwerem NFSv3): klient jądra cache'uje w RAM. Wstępny test: użytkownik bez uprawnień administratora może wywołać `mount_nfs` (próba nie skończyła się błędem uprawnień). Wymaga biblioteki serwera NFS (nowa zależność) i nadal gniazda TCP (F-02 zostaje, chyba że ograniczymy port i uwierzytelnianie).
-3. **macFUSE**: odrzucone w S001 (kext, obniżenie zabezpieczeń).
+- jak użytkownik montuje sejf (aplikacja w pasku menu, `mount -F`, automatycznie po włożeniu karty);
+- gdzie w FSKit buforować zapisy i kiedy zatwierdzać (zamknięcie pliku, `fsync`, bezczynność), żeby zachować FR-10 i FR-11;
+- zachowanie przy wyjęciu karty w trakcie pracy.
 
 ## 6. Critical Path
 
-[DO USTALENIA] po wyborze opcji.
+1. Tożsamość do podpisu i potwierdzenie, że rozszerzenie FSKit z uprawnieniem się ładuje (minimalny moduł „hello”).
+2. Most do silnika Go i operacje tylko do odczytu.
+3. Zapis, zmiana nazwy, usuwanie, zatwierdzanie.
+4. Karta: nadzór i odmontowanie.
+5. Testy E2E bramek S001, G1, G2; analiza bezpieczeństwa.
 
 ## 7. Control Gates
 
 | # | Bramka | Warunek zaliczenia | Weryfikacja | Blokuje |
 | --- | --- | --- | --- | --- |
-| G1 | Brak jawnej treści na SSD poza udziałem A | 0 trafień markera w plikach otwartych przez procesy systemowe (`lsof`) i w `/private/tmp`, `/private/var/folders` w trakcie i po pracy | E2E | wydanie |
-| G2 | Brak dostępu dla innego procesu bez tokenu/uprawnień | odmowa | E2E | wydanie |
-| G3 | Wszystkie bramki CG-01–CG-11 z S001 | zielone | `go test ./...` + E2E | wydanie |
+| G1 | Brak jawnej treści na SSD poza RAM | 0 trafień markera w plikach otwartych przez procesy systemowe (`lsof`) oraz w `/private/tmp` i `/private/var/folders` w trakcie i po pracy | E2E | wydanie |
+| G2 | Brak dostępu przez sieć lub gniazdo | rozszerzenie nie otwiera żadnego gniazda nasłuchującego | `lsof -i` | wydanie |
+| G3 | Bramki CG-01–CG-11 z S001 | zielone | `go test ./...` + E2E | wydanie |
 
 ## 8. Expected Outcome
 
-Zamknięte F-01 i F-02; `mount` może przestać wymagać FileVault (nadal zalecany, FR-27).
+Sejf montowany natywnie, F-01 i F-02 zamknięte.
 
 ## 9. Additional Information
 
-- Źródło: analiza bezpieczeństwa rundy S001.
-- Otwarte pytanie: czy właściciel może zainstalować Xcode i ma konto Apple Developer (warunek FSKit)?
+- **Odrzucone:** WebDAV (F-01, F-02), NFS loopback (decyzja właściciela), macFUSE (rozszerzenie jądra, obniżenie zabezpieczeń).
+- **Rekomendacja mostu:** silnik sejfu zostaje w Go i jest linkowany do rozszerzenia jako biblioteka C. Przepisanie silnika na Swift dałoby dwie implementacje formatu (M2: bez duplikacji). Osobny proces pomocniczy przez XPC to dodatkowa granica do zabezpieczenia.
+- **Otwarte pytanie:** czy właściciel doda Apple ID w Xcode (Settings → Accounts) i czy ma płatne konto Apple Developer?

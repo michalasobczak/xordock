@@ -24,6 +24,7 @@ var Logf = log.Printf
 // Entry opisuje plik albo katalog w indeksie. Indeks (z nazwami plików) jest
 // przechowywany jako obiekt dzielony XOR, więc nazwy nie leżą jawnie na A.
 type Entry struct {
+	Ino     uint64    `json:"i"` // stały numer pliku (przeżywa zmianę nazwy); 1 = katalog główny
 	Dir     bool      `json:"d,omitempty"`
 	Size    int64     `json:"s"`
 	ModTime time.Time `json:"t"`
@@ -32,14 +33,53 @@ type Entry struct {
 
 type Index struct {
 	Entries map[string]*Entry `json:"e"`
+	NextIno uint64            `json:"n"`
 }
 
 func newIndex() *Index {
-	return &Index{Entries: map[string]*Entry{"/": {Dir: true, ModTime: time.Now().UTC()}}}
+	return &Index{Entries: map[string]*Entry{"/": {Ino: 1, Dir: true, ModTime: time.Now().UTC()}}, NextIno: 2}
+}
+
+// allocIno przydziela nowy numer pliku.
+func (ix *Index) allocIno() uint64 {
+	if ix.NextIno < 2 {
+		ix.NextIno = 2
+	}
+	n := ix.NextIno
+	ix.NextIno++
+	return n
+}
+
+// ensureInos nadaje numery wpisom z indeksów sprzed ich wprowadzenia
+// (deterministycznie, w kolejności ścieżek).
+func (ix *Index) ensureInos() {
+	ix.Entries["/"].Ino = 1
+	var missing []string
+	for p, e := range ix.Entries {
+		if e.Ino == 0 {
+			missing = append(missing, p)
+		}
+		if e.Ino >= ix.NextIno {
+			ix.NextIno = e.Ino + 1
+		}
+	}
+	sort.Strings(missing)
+	for _, p := range missing {
+		ix.Entries[p].Ino = ix.allocIno()
+	}
+}
+
+func (ix *Index) pathOf(ino uint64) (string, bool) {
+	for p, e := range ix.Entries {
+		if e.Ino == ino {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 func (ix *Index) clone() *Index {
-	c := &Index{Entries: make(map[string]*Entry, len(ix.Entries))}
+	c := &Index{Entries: make(map[string]*Entry, len(ix.Entries)), NextIno: ix.NextIno}
 	for k, e := range ix.Entries {
 		ce := *e
 		ce.Blocks = append([]string(nil), e.Blocks...)
@@ -81,8 +121,9 @@ type Vault struct {
 	prevIdx  *Index
 	broken   error
 	lock     *os.File
-	dirty    map[string]bool // katalogi z nowymi obiektami, do utrwalenia przy commicie
-	Recovery string          // opis odzyskiwania przy otwarciu, pusty gdy nie było potrzeby
+	inos     map[uint64]string // ino → ścieżka dla bieżącego indeksu
+	dirty    map[string]bool   // katalogi z nowymi obiektami, do utrwalenia przy commicie
+	Recovery string            // opis odzyskiwania przy otwarciu, pusty gdy nie było potrzeby
 }
 
 func (o Options) masksOrDefault() split.MaskSource {
@@ -103,6 +144,7 @@ func (v *Vault) Close() {
 func (v *Vault) ID() ID           { return v.id }
 func (v *Vault) Name() string     { return v.name }
 func (v *Vault) BRoot() string    { return v.bRoot }
+func (v *Vault) ARoot() string    { return v.aRoot }
 func (v *Vault) Seq() uint64      { v.mu.Lock(); defer v.mu.Unlock(); return v.cur.Seq }
 func (v *Vault) MaskKind() string { return split.Kind(v.masks) }
 
@@ -330,6 +372,7 @@ func (v *Vault) loadIndex(oid string) (*Index, error) {
 	if err := json.Unmarshal(data, ix); err != nil || ix.Entries == nil || ix.Entries["/"] == nil {
 		return nil, fmt.Errorf("%w: indeks %s", ErrCorrupt, oid)
 	}
+	ix.ensureInos()
 	return ix, nil
 }
 
@@ -462,6 +505,7 @@ func (v *Vault) commitIndex(nix *Index) error {
 	oldLive := v.live()
 	v.prev, v.prevIdx = v.cur, v.idx
 	v.cur, v.idx = newCur, nix
+	v.inos = nil
 	newLive := v.live()
 	for id := range oldLive {
 		if !newLive[id] {
@@ -564,6 +608,25 @@ func (v *Vault) List(dir string) []DirItem {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// ByIno zwraca ścieżkę i kopię wpisu o danym numerze.
+func (v *Vault) ByIno(ino uint64) (string, Entry, bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.inos == nil {
+		v.inos = make(map[uint64]string, len(v.idx.Entries))
+		for p, e := range v.idx.Entries {
+			v.inos[e.Ino] = p
+		}
+	}
+	p, ok := v.inos[ino]
+	if !ok {
+		return "", Entry{}, false
+	}
+	e := *v.idx.Entries[p]
+	e.Blocks = append([]string(nil), e.Blocks...)
+	return p, e, true
 }
 
 // Paths zwraca wszystkie ścieżki w indeksie (posortowane).

@@ -4,6 +4,14 @@ Chronologiczny zapis tego, co faktycznie dostarczono. Wpisy są uporządkowane w
 
 ## 2026-11-22
 
+### S002 (przygotowanie): usunięcie WebDAV, kierunek FSKit
+
+- Właściciel odrzucił WebDAV i NFS; integracja z Finderem ma być natywna (FSKit). Usunięto `xordock mount`, `internal/davfs`, `internal/mount` i zależność `golang.org/x/net`. Projekt nie ma zależności zewnętrznych.
+- F-01 i F-02 z analizy rundy S001 przestały dotyczyć kodu (usunięta integracja). Wrócą do sprawdzenia przy S002.
+- Próbny serwer NFSv3 napisany i porzucony przed pierwszym udanym montowaniem (nie trafił do repozytorium).
+- `internal/vault`: stałe numery plików w indeksie (`Entry.Ino`, katalog główny = 1, uzupełniane w starych indeksach), operacje po numerze i z semantyką systemu plików: `ByIno`, `SetFileIno`, `SetModTime`, `Create`, `Remove` (unlink/rmdir), `RenameReplacing`. Testy: `TestInodesStable`, `TestReplaceAndRemoveSemantics`, `TestEnsureInosForOldIndex`.
+- S002 przepisana na FSKit. Stanowisko: Xcode 27.2 z FSKit SDK; brak tożsamości do podpisywania.
+
 ### S001: prototyp xordock Secure Folders
 
 - Specyfikacja S001 (szkic właściciela, nazwa robocza OpenTrust → xordock). Decyzje Q-01–Q-06 i FR-05 według rekomendacji, na polecenie właściciela (S001 §9.8).

@@ -8,11 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"xordock/internal/mount"
 	"xordock/internal/split"
 	"xordock/internal/vault"
 )
@@ -21,13 +19,12 @@ const usage = `xordock — katalog w Finderze, dane podzielone XOR między SSD i
 
 Użycie:
   xordock init   --card /Volumes/KARTA [--name sejf] [--a KATALOG]
-  xordock mount  [--name sejf] [--a KATALOG] [--at PUNKT_MONTOWANIA]
   xordock fsck   [--name sejf] [--a KATALOG]
   xordock export [--name sejf] [--a KATALOG] --to KATALOG
 
 Udział A domyślnie: ~/Library/Application Support/xordock/<name>
 Udział B: <karta>/xordock/<name>, rozpoznawany po identyfikatorze sejfu.
-Punkt montowania domyślnie: ~/xordock/<name>
+Montowanie w Finderze: rozszerzenie FSKit (S002, w budowie).
 `
 
 func main() {
@@ -39,8 +36,6 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		err = cmdInit(os.Args[2:])
-	case "mount":
-		err = cmdMount(os.Args[2:])
 	case "fsck":
 		err = cmdFsck(os.Args[2:])
 	case "export":
@@ -78,13 +73,6 @@ func (c *common) aRoot() string {
 
 func warnings() {
 	fmt.Println("Maski:", split.Kind(split.CSPRNG{}))
-}
-
-// fileVaultOn: macOS (agent WebDAV, aplikacje, swap) zapisuje jawne kopie
-// otwieranych plików na SSD; bez FileVault leżą tam niezaszyfrowane (S001 §9.8, F-01).
-func fileVaultOn() bool {
-	out, err := exec.Command("/usr/bin/fdesetup", "status").Output()
-	return err == nil && strings.Contains(string(out), "FileVault is On")
 }
 
 func cmdInit(args []string) error {
@@ -141,29 +129,6 @@ func open(c common) (*vault.Vault, error) {
 		fmt.Println("Odzyskiwanie:", v.Recovery)
 	}
 	return v, nil
-}
-
-func cmdMount(args []string) error {
-	fl := flag.NewFlagSet("mount", flag.ExitOnError)
-	var c common
-	c.bind(fl)
-	at := fl.String("at", "", "punkt montowania")
-	noFV := fl.Bool("allow-no-filevault", false, "montuj mimo wyłączonego FileVault (niezalecane)")
-	fl.Parse(args)
-	if !fileVaultOn() && !*noFV {
-		return errors.New("FileVault jest wyłączony: macOS zapisuje jawne kopie otwieranych plików na SSD. Włącz FileVault albo użyj --allow-no-filevault")
-	}
-	v, err := open(c)
-	if err != nil {
-		return err
-	}
-	mp := *at
-	if mp == "" {
-		mp = filepath.Join(home(), "xordock", c.name)
-	}
-	warnings()
-	fmt.Println("Ctrl+C albo „Wysuń” w Finderze odmontowuje katalog. Wyjęcie karty odmontowuje go natychmiast.")
-	return mount.Run(v, mp, func(s string) { fmt.Println(s) })
 }
 
 func cmdFsck(args []string) error {

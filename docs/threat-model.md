@@ -15,7 +15,7 @@ Treść plików i ich nazwy (nazwy i struktura katalogów są w indeksie dzielon
 | Ma A i B | **Nie** (poza zakresem). |
 | Kontroluje Maca, gdy sejf jest zamontowany (malware, inne konto lokalne) | **Nie** (poza zakresem; F-02). |
 | Modyfikuje jeden udział, żeby zmienić treść | **Nie wykrywamy** (F-03, R-04). Przypadkowe uszkodzenia wykrywamy. |
-| Ma SSD wyłączonego Maca z FileVault | Chronią go FileVault i xordock. Bez FileVault cache macOS (F-01) może zawierać jawne fragmenty, dlatego `mount` wymaga FileVault. |
+| Ma SSD wyłączonego Maca z FileVault | Chronią go FileVault i xordock. Bez FileVault pliki tymczasowe i cache aplikacji mogą zawierać jawne fragmenty (FR-25). |
 
 ## Czego nie ukrywamy
 
@@ -23,4 +23,4 @@ Rozmiarów i liczby obiektów, czasów zapisu, nazwy sejfu, faktu używania xord
 
 ## Granice systemu (FR-25, IT-03)
 
-Jawne dane opuszczają sejf w czasie pracy: RAM aplikacji, cache agenta WebDAV (F-01), pliki tymczasowe i autozapis aplikacji, miniatury QuickLook, historia ostatnich dokumentów. Szczegóły i zalecenia: `docs/uzytkowanie.md`.
+Jawne dane opuszczają sejf w czasie pracy: RAM aplikacji, pliki tymczasowe i autozapis aplikacji, miniatury QuickLook, historia ostatnich dokumentów. Szczegóły i zalecenia: `docs/uzytkowanie.md`.

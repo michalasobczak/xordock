@@ -432,3 +432,79 @@ func TestSecondOpenLocked(t *testing.T) {
 	v.Close()
 	mustOpen(t, a, b).Close()
 }
+
+// Numery plików są stałe: przeżywają zmianę nazwy, zapis nowej treści
+// i ponowne otwarcie sejfu (potrzebne integracji z systemem plików macOS).
+func TestInodesStable(t *testing.T) {
+	a, b := roots(t)
+	v := mustCreate(t, a, b, Options{})
+	if err := v.Mkdir("/d"); err != nil {
+		t.Fatal(err)
+	}
+	ino, err := v.Create("/d/f", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Create("/d/f", true); !errors.Is(err, ErrExist) {
+		t.Fatalf("wyłączne tworzenie istniejącego pliku: %v", err)
+	}
+	if again, err := v.Create("/d/f", false); err != nil || again != ino {
+		t.Fatalf("tworzenie bez wyłączności: %d %v", again, err)
+	}
+	if _, err := v.RenameReplacing("/d", "/e"); err != nil {
+		t.Fatal(err)
+	}
+	blocks, _ := v.WriteBlocks([]byte("treść"))
+	if err := v.SetFileIno(ino, blocks, 5, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p, e, ok := v.ByIno(ino); !ok || p != "/e/f" || e.Size != 5 {
+		t.Fatalf("ByIno po przeniesieniu: %q %+v %v", p, e, ok)
+	}
+	v2 := mustOpen(t, a, b)
+	defer v2.Close()
+	if e, _ := v2.Stat("/e/f"); e.Ino != ino {
+		t.Fatalf("numer po ponownym otwarciu: %d, był %d", e.Ino, ino)
+	}
+	if root, _ := v2.Stat("/"); root.Ino != 1 {
+		t.Fatalf("katalog główny ma numer %d", root.Ino)
+	}
+}
+
+// Zastąpienie pliku przy przeniesieniu zwraca numer zastąpionego; Remove
+// ma semantykę unlink/rmdir.
+func TestReplaceAndRemoveSemantics(t *testing.T) {
+	a, b := roots(t)
+	v := mustCreate(t, a, b, Options{})
+	x, _ := v.Create("/x", true)
+	y, _ := v.Create("/y", true)
+	if replaced, err := v.RenameReplacing("/x", "/y"); err != nil || replaced != y {
+		t.Fatalf("zastąpiony %d (oczekiwano %d): %v", replaced, y, err)
+	}
+	if e, _ := v.Stat("/y"); e.Ino != x {
+		t.Fatal("po przeniesieniu plik ma inny numer")
+	}
+	v.Mkdir("/d")
+	v.Create("/d/z", true)
+	if _, err := v.Remove("/d", true); !errors.Is(err, ErrNotEmpty) {
+		t.Fatalf("rmdir niepustego: %v", err)
+	}
+	if _, err := v.Remove("/d", false); !errors.Is(err, ErrIsDir) {
+		t.Fatalf("unlink katalogu: %v", err)
+	}
+	if _, err := v.Remove("/d/z", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Remove("/d", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Indeks sprzed wprowadzenia numerów dostaje je deterministycznie.
+func TestEnsureInosForOldIndex(t *testing.T) {
+	ix := &Index{Entries: map[string]*Entry{"/": {Dir: true}, "/b": {}, "/a": {}}}
+	ix.ensureInos()
+	if ix.Entries["/"].Ino != 1 || ix.Entries["/a"].Ino != 2 || ix.Entries["/b"].Ino != 3 || ix.NextIno != 4 {
+		t.Fatalf("numery: / %d, /a %d, /b %d, next %d", ix.Entries["/"].Ino, ix.Entries["/a"].Ino, ix.Entries["/b"].Ino, ix.NextIno)
+	}
+}

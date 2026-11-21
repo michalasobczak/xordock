@@ -57,13 +57,117 @@ func (v *Vault) SetFile(p string, blocks []string, size int64) error {
 		if err := parentDir(ix, p); err != nil {
 			return err
 		}
-		if e, ok := ix.Entries[p]; ok && e.Dir {
-			return ErrIsDir
+		ino := uint64(0)
+		if e, ok := ix.Entries[p]; ok {
+			if e.Dir {
+				return ErrIsDir
+			}
+			ino = e.Ino
+		} else {
+			ino = ix.allocIno()
 		}
-		ix.Entries[p] = &Entry{Size: size, ModTime: time.Now().UTC(), Blocks: blocks}
+		ix.Entries[p] = &Entry{Ino: ino, Size: size, ModTime: time.Now().UTC(), Blocks: blocks}
 		ix.Entries[path.Dir(p)].ModTime = time.Now().UTC()
 		return nil
 	})
+}
+
+// SetFileIno zatwierdza nową zawartość pliku wskazanego numerem (ścieżka
+// mogła się zmienić od otwarcia). mtime nil oznacza „teraz”.
+func (v *Vault) SetFileIno(ino uint64, blocks []string, size int64, mtime *time.Time) error {
+	return v.Commit(func(ix *Index) error {
+		p, ok := ix.pathOf(ino)
+		if !ok {
+			return ErrNotExist
+		}
+		e := ix.Entries[p]
+		if e.Dir {
+			return ErrIsDir
+		}
+		t := time.Now().UTC()
+		if mtime != nil {
+			t = mtime.UTC()
+		}
+		ix.Entries[p] = &Entry{Ino: ino, Size: size, ModTime: t, Blocks: blocks}
+		return nil
+	})
+}
+
+// SetModTime ustawia czas modyfikacji pliku albo katalogu.
+func (v *Vault) SetModTime(ino uint64, mtime time.Time) error {
+	return v.Commit(func(ix *Index) error {
+		p, ok := ix.pathOf(ino)
+		if !ok {
+			return ErrNotExist
+		}
+		ix.Entries[p].ModTime = mtime.UTC()
+		return nil
+	})
+}
+
+// Create tworzy pusty plik. exclusive=true: błąd, gdy istnieje. Zwraca numer pliku.
+func (v *Vault) Create(p string, exclusive bool) (uint64, error) {
+	p = Clean(p)
+	var ino uint64
+	err := v.Commit(func(ix *Index) error {
+		if err := parentDir(ix, p); err != nil {
+			return err
+		}
+		if e, ok := ix.Entries[p]; ok {
+			if exclusive {
+				return ErrExist
+			}
+			if e.Dir {
+				return ErrIsDir
+			}
+			ino = e.Ino
+			return errNoChange
+		}
+		ino = ix.allocIno()
+		ix.Entries[p] = &Entry{Ino: ino, ModTime: time.Now().UTC()}
+		ix.Entries[path.Dir(p)].ModTime = time.Now().UTC()
+		return nil
+	})
+	if errors.Is(err, errNoChange) {
+		err = nil
+	}
+	return ino, err
+}
+
+// errNoChange przerywa commit bez błędu dla wywołującego.
+var errNoChange = errors.New("bez zmian")
+
+// Remove usuwa plik albo pusty katalog (semantyka unlink/rmdir).
+func (v *Vault) Remove(p string, dir bool) (uint64, error) {
+	p = Clean(p)
+	if p == "/" {
+		return 0, ErrRoot
+	}
+	var ino uint64
+	err := v.Commit(func(ix *Index) error {
+		e, ok := ix.Entries[p]
+		if !ok {
+			return ErrNotExist
+		}
+		if e.Dir != dir {
+			if e.Dir {
+				return ErrIsDir
+			}
+			return ErrNotDir
+		}
+		if dir {
+			for k := range ix.Entries {
+				if k != p && under(k, p) {
+					return ErrNotEmpty
+				}
+			}
+		}
+		ino = e.Ino
+		delete(ix.Entries, p)
+		ix.Entries[path.Dir(p)].ModTime = time.Now().UTC()
+		return nil
+	})
+	return ino, err
 }
 
 // PutFile zapisuje cały plik.
@@ -110,7 +214,8 @@ func (v *Vault) Mkdir(p string) error {
 		if err := parentDir(ix, p); err != nil {
 			return err
 		}
-		ix.Entries[p] = &Entry{Dir: true, ModTime: time.Now().UTC()}
+		ix.Entries[p] = &Entry{Ino: ix.allocIno(), Dir: true, ModTime: time.Now().UTC()}
+		ix.Entries[path.Dir(p)].ModTime = time.Now().UTC()
 		return nil
 	})
 }
@@ -141,14 +246,21 @@ func (v *Vault) RemoveAll(p string) error {
 // Rename przenosi plik albo katalog. Bloki nie są przepisywane; zmienia się
 // tylko indeks. Istniejący plik docelowy jest zastępowany, katalog nie.
 func (v *Vault) Rename(from, to string) error {
+	_, err := v.RenameReplacing(from, to)
+	return err
+}
+
+// RenameReplacing działa jak Rename i zwraca numer zastąpionego pliku (0, gdy nie było).
+func (v *Vault) RenameReplacing(from, to string) (uint64, error) {
 	from, to = Clean(from), Clean(to)
 	if from == "/" || to == "/" {
-		return ErrRoot
+		return 0, ErrRoot
 	}
 	if from == to {
-		return nil
+		return 0, nil
 	}
-	return v.Commit(func(ix *Index) error {
+	var replaced uint64
+	err := v.Commit(func(ix *Index) error {
 		src, ok := ix.Entries[from]
 		if !ok {
 			return ErrNotExist
@@ -169,6 +281,7 @@ func (v *Vault) Rename(from, to string) error {
 			} else if src.Dir {
 				return ErrNotDir
 			}
+			replaced = dst.Ino
 			delete(ix.Entries, to)
 		}
 		moved := map[string]*Entry{}
@@ -181,6 +294,10 @@ func (v *Vault) Rename(from, to string) error {
 		for k, e := range moved {
 			ix.Entries[k] = e
 		}
+		now := time.Now().UTC()
+		ix.Entries[path.Dir(from)].ModTime = now
+		ix.Entries[path.Dir(to)].ModTime = now
 		return nil
 	})
+	return replaced, err
 }
