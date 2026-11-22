@@ -13,6 +13,7 @@ type FsckReport struct {
 	Dirs      int
 	Bytes     int64
 	Objects   int
+	Snapshots int
 	Problems  []string
 	Recovered string
 }
@@ -49,6 +50,21 @@ func (v *Vault) Fsck() FsckReport {
 		}
 	}
 	check(v.cur.Index)
+	// Migawki: ich obiekty muszą być kompletne po obu stronach (S004 §5.4).
+	for _, s := range v.idx.Snaps {
+		check(s.Index)
+		ix, err := v.loadIndex(s.Index)
+		if err != nil {
+			r.Problems = append(r.Problems, fmt.Sprintf("migawka %s: %v", s.ID, err))
+			continue
+		}
+		r.Snapshots++
+		for _, e := range ix.Entries {
+			for _, b := range e.Blocks {
+				check(b)
+			}
+		}
+	}
 	for _, e := range v.idx.Entries {
 		if e.Dir {
 			r.Dirs++

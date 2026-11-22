@@ -1,12 +1,11 @@
 // xordock: chroniony katalog macOS przechowywany jako dwa udziały XOR,
-// A na SSD Maca i B na karcie SD. Zob. specs/S001-xordock-secure-folders.md.
+// A na SSD Maca i B na karcie SD. Zob. specs/S004-xordock-macos-mvp.md.
 package main
 
 import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,14 +16,22 @@ import (
 
 const usage = `xordock — katalog w Finderze, dane podzielone XOR między SSD i kartę SD
 
-Użycie:
-  xordock init   --card /Volumes/KARTA [--name sejf] [--a KATALOG]
-  xordock fsck   [--name sejf] [--a KATALOG]
-  xordock export [--name sejf] [--a KATALOG] --to KATALOG
+Użycie (wspólne flagi: --name sejf, --a KATALOG_A):
+  xordock init     --card /Volumes/KARTA
+  xordock mount    [--at /Volumes/xordock-<name>]   katalog w Finderze (macFUSE, backend FSKit)
+  xordock unmount  [--at …]
+  xordock status                                    karta, migawki, ostatni backup, co może przepaść
+  xordock fsck
+  xordock export   --to KATALOG                     jawne pliki, NIE są już chronione
+  xordock snapshot create | list | rm --id ID
+  xordock backup   --spare /Volumes/ZAPASOWA [--snapshot ID]
+  xordock backup   prune --spare /Volumes/ZAPASOWA  zostawia tylko najnowszy punkt
+  xordock recover  --spare /Volumes/ZAPASOWA list | verify | export --to KATALOG |
+                   restore --card /Volumes/NOWA [--new-name NAZWA]   [--point ID]
 
 Udział A domyślnie: ~/Library/Application Support/xordock/<name>
 Udział B: <karta>/xordock/<name>, rozpoznawany po identyfikatorze sejfu.
-Montowanie w Finderze: rozszerzenie FSKit (S002, w budowie).
+Backup wymaga karty roboczej i zapasowej podłączonych jednocześnie.
 `
 
 func main() {
@@ -40,6 +47,18 @@ func main() {
 		err = cmdFsck(os.Args[2:])
 	case "export":
 		err = cmdExport(os.Args[2:])
+	case "status":
+		err = cmdStatus(os.Args[2:])
+	case "snapshot":
+		err = cmdSnapshot(os.Args[2:])
+	case "backup":
+		err = cmdBackup(os.Args[2:])
+	case "recover":
+		err = cmdRecover(os.Args[2:])
+	case "mount":
+		err = cmdMount(os.Args[2:])
+	case "unmount":
+		err = cmdUnmount(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
@@ -75,6 +94,14 @@ func warnings() {
 	fmt.Println("Maski:", split.Kind(split.CSPRNG{}))
 }
 
+// subcommand zdejmuje pierwsze słowo bez myślnika (np. "create").
+func subcommand(args []string) (string, []string) {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return "", args
+}
+
 func cmdInit(args []string) error {
 	fl := flag.NewFlagSet("init", flag.ExitOnError)
 	var c common
@@ -98,22 +125,30 @@ func cmdInit(args []string) error {
 	return nil
 }
 
-// findB szuka udziału B na podłączonych wolumenach po identyfikatorze
-// sejfu, nie po nazwie wolumenu (FR-16).
+// findB szuka karty roboczej sejfu na podłączonych wolumenach po
+// identyfikatorze sejfu, nie po nazwie wolumenu. Karty zapasowe pomija.
 func findB(aRoot string) (string, error) {
 	id, name, err := vault.ReadVaultID(aRoot)
 	if err != nil {
 		return "", fmt.Errorf("udział A: %w", err)
 	}
-	matches, _ := filepath.Glob("/Volumes/*/xordock/*/xordock.json")
-	for _, m := range matches {
-		dir := filepath.Dir(m)
-		data, err := os.ReadFile(m)
-		if err == nil && strings.Contains(string(data), `"`+id.String()+`"`) {
-			return dir, nil
+	for _, c := range vault.FindCards("/Volumes", id) {
+		if c.Role == "" {
+			return c.Root, nil
 		}
 	}
-	return "", fmt.Errorf("nie znaleziono karty sejfu %q (%s); podłącz właściwą kartę", name, id)
+	return "", fmt.Errorf("nie znaleziono karty roboczej sejfu %q (%s); podłącz właściwą kartę", name, id)
+}
+
+// spareRoot zwraca katalog sejfu na karcie zapasowej.
+func spareRoot(volume, name string) (string, error) {
+	if volume == "" {
+		return "", errors.New("podaj --spare /Volumes/KARTA_ZAPASOWA")
+	}
+	if !strings.HasPrefix(filepath.Clean(volume), "/Volumes/") {
+		return "", errors.New("--spare musi wskazywać wolumen w /Volumes")
+	}
+	return filepath.Join(volume, "xordock", name), nil
 }
 
 func open(c common) (*vault.Vault, error) {
@@ -161,34 +196,18 @@ func cmdExport(args []string) error {
 	if *to == "" {
 		return errors.New("podaj --to")
 	}
-	if _, err := os.Stat(*to); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(*to); !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%s już istnieje", *to)
 	}
 	v, err := open(c)
 	if err != nil {
 		return err
 	}
+	defer v.Close()
 	fmt.Println("UWAGA: wyeksportowane pliki NIE są chronione podziałem XOR.")
-	n := 0
-	for _, p := range v.Paths() {
-		e, _ := v.Stat(p)
-		dst := filepath.Join(*to, filepath.FromSlash(p))
-		if e.Dir {
-			if err := os.MkdirAll(dst, 0o700); err != nil {
-				return err
-			}
-			continue
-		}
-		data, err := v.GetFile(p)
-		if err != nil {
-			return err
-		}
-		err = os.WriteFile(dst, data, 0o600)
-		split.Wipe(data)
-		if err != nil {
-			return err
-		}
-		n++
+	n, err := vault.ExportTo(v, *to)
+	if err != nil {
+		return err
 	}
 	fmt.Printf("Wyeksportowano %d plików do %s\n", n, *to)
 	return nil

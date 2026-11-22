@@ -34,6 +34,7 @@ type Entry struct {
 type Index struct {
 	Entries map[string]*Entry `json:"e"`
 	NextIno uint64            `json:"n"`
+	Snaps   []Snapshot        `json:"s,omitempty"` // migawki (S004 §5.4), też dzielone XOR
 }
 
 func newIndex() *Index {
@@ -85,6 +86,10 @@ func (ix *Index) clone() *Index {
 		ce.Blocks = append([]string(nil), e.Blocks...)
 		c.Entries[k] = &ce
 	}
+	for _, sn := range ix.Snaps {
+		sn.Points = append([]PointRef(nil), sn.Points...)
+		c.Snaps = append(c.Snaps, sn)
+	}
 	return c
 }
 
@@ -121,9 +126,10 @@ type Vault struct {
 	prevIdx  *Index
 	broken   error
 	lock     *os.File
-	inos     map[uint64]string // ino → ścieżka dla bieżącego indeksu
-	dirty    map[string]bool   // katalogi z nowymi obiektami, do utrwalenia przy commicie
-	Recovery string            // opis odzyskiwania przy otwarciu, pusty gdy nie było potrzeby
+	inos     map[uint64]string          // ino → ścieżka dla bieżącego indeksu
+	dirty    map[string]bool            // katalogi z nowymi obiektami, do utrwalenia przy commicie
+	snapRefs map[string]map[string]bool // indeks migawki → obiekty, które przypina
+	Recovery string                     // opis odzyskiwania przy otwarciu, pusty gdy nie było potrzeby
 }
 
 func (o Options) masksOrDefault() split.MaskSource {
@@ -239,6 +245,9 @@ func Open(aRoot, bRoot string, opt Options) (*Vault, error) {
 	hB, err := readHeader(bRoot, SideB)
 	if err != nil {
 		return nil, fmt.Errorf("udział B: %w", err)
+	}
+	if hB.Role == roleBackup {
+		return nil, ErrSpareCard
 	}
 	if hA.Vault != hB.Vault {
 		return nil, ErrWrongCard
@@ -359,11 +368,45 @@ func (v *Vault) writeSuper(root string, side Side, cur, prev commitRec) error {
 }
 
 func (v *Vault) loadIndex(oid string) (*Index, error) {
+	return loadIndexFrom(v.aRoot, v.bRoot, v.id, oid)
+}
+
+// readShares czyta oba udziały obiektu, weryfikuje je i zwraca jawne dane.
+// Wywołujący odpowiada za split.Wipe na wyniku.
+func (v *Vault) readShares(oid ID) ([]byte, error) {
+	return readPair(v.aRoot, v.bRoot, v.id, oid)
+}
+
+// readPair składa obiekt z udziału A (aRoot) i B (bRoot: karta robocza albo
+// zapasowa). Brak lub uszkodzenie którejkolwiek strony to błąd, nigdy
+// zastępcze dane (G-03, R-02).
+func readPair(aRoot, bRoot string, vault, oid ID) ([]byte, error) {
+	rawA, err := os.ReadFile(objPath(aRoot, oid))
+	if err != nil {
+		return nil, fmt.Errorf("udział A %s: %w", oid, err)
+	}
+	rawB, err := os.ReadFile(objPath(bRoot, oid))
+	if err != nil {
+		return nil, fmt.Errorf("udział B %s: %w", oid, err)
+	}
+	a, err := decodeShare(rawA, SideA, vault, oid)
+	if err != nil {
+		return nil, err
+	}
+	b, err := decodeShare(rawB, SideB, vault, oid)
+	if err != nil {
+		return nil, err
+	}
+	return split.Join(a, b)
+}
+
+// loadIndexFrom wczytuje indeks złożony z udziałów w podanych korzeniach.
+func loadIndexFrom(aRoot, bRoot string, vault ID, oid string) (*Index, error) {
 	id, err := ParseID(oid)
 	if err != nil {
 		return nil, err
 	}
-	data, err := v.readShares(id)
+	data, err := readPair(aRoot, bRoot, vault, id)
 	if err != nil {
 		return nil, err
 	}
@@ -372,30 +415,30 @@ func (v *Vault) loadIndex(oid string) (*Index, error) {
 	if err := json.Unmarshal(data, ix); err != nil || ix.Entries == nil || ix.Entries["/"] == nil {
 		return nil, fmt.Errorf("%w: indeks %s", ErrCorrupt, oid)
 	}
+	if err := ix.validate(); err != nil {
+		return nil, fmt.Errorf("%w: indeks %s: %v", ErrCorrupt, oid, err)
+	}
 	ix.ensureInos()
 	return ix, nil
 }
 
-// readShares czyta oba udziały obiektu, weryfikuje je i zwraca jawne dane.
-// Wywołujący odpowiada za split.Wipe na wyniku.
-func (v *Vault) readShares(oid ID) ([]byte, error) {
-	rawA, err := os.ReadFile(objPath(v.aRoot, oid))
-	if err != nil {
-		return nil, fmt.Errorf("udział A %s: %w", oid, err)
+// validate sprawdza, że każda ścieżka jest kanoniczna, bezwzględna i ma
+// katalog nadrzędny. Chroni eksport i montowanie przed ścieżkami z „..”
+// w uszkodzonym albo podmienionym indeksie (S005, R4-02).
+func (ix *Index) validate() error {
+	for p := range ix.Entries {
+		if p != Clean(p) || !strings.HasPrefix(p, "/") {
+			return fmt.Errorf("niekanoniczna ścieżka w indeksie")
+		}
+		if p == "/" {
+			continue
+		}
+		parent, ok := ix.Entries[path.Dir(p)]
+		if !ok || !parent.Dir {
+			return fmt.Errorf("wpis bez katalogu nadrzędnego")
+		}
 	}
-	rawB, err := os.ReadFile(objPath(v.bRoot, oid))
-	if err != nil {
-		return nil, fmt.Errorf("udział B %s: %w", oid, err)
-	}
-	a, err := decodeShare(rawA, SideA, v.id, oid)
-	if err != nil {
-		return nil, err
-	}
-	b, err := decodeShare(rawB, SideB, v.id, oid)
-	if err != nil {
-		return nil, err
-	}
-	return split.Join(a, b)
+	return nil
 }
 
 // ReadBlock zwraca jawną treść bloku. Wywołujący czyści bufor.
@@ -502,11 +545,15 @@ func (v *Vault) commitIndex(nix *Index) error {
 	if err := v.writeSuper(v.bRoot, SideB, newCur, v.cur); err != nil {
 		return v.fail(fmt.Errorf("superblok B: %w", err))
 	}
-	oldLive := v.live()
+	oldLive, okOld := v.live()
 	v.prev, v.prevIdx = v.cur, v.idx
 	v.cur, v.idx = newCur, nix
 	v.inos = nil
-	newLive := v.live()
+	newLive, okNew := v.live()
+	if !okOld || !okNew {
+		Logf("xordock: GC wstrzymane: nie da się ustalić obiektów przypiętych przez migawki")
+		return nil
+	}
 	for id := range oldLive {
 		if !newLive[id] {
 			v.removeObject(id)
@@ -515,7 +562,10 @@ func (v *Vault) commitIndex(nix *Index) error {
 	return nil
 }
 
-func (v *Vault) live() map[string]bool {
+// live zwraca obiekty osiągalne z bieżącego i poprzedniego stanu oraz ze
+// wszystkich migawek. ok=false, gdy indeksu którejś migawki nie da się
+// odczytać: wtedy GC nie może niczego usuwać (S004 S-04).
+func (v *Vault) live() (map[string]bool, bool) {
 	m := map[string]bool{}
 	if v.cur.Index != "" {
 		m[v.cur.Index] = true
@@ -525,7 +575,42 @@ func (v *Vault) live() map[string]bool {
 	}
 	v.idx.refs(m)
 	v.prevIdx.refs(m)
-	return m
+	ok := true
+	for _, ix := range []*Index{v.idx, v.prevIdx} {
+		if ix == nil {
+			continue
+		}
+		for _, sn := range ix.Snaps {
+			refs, err := v.snapLive(sn.Index)
+			if err != nil {
+				ok = false
+				continue
+			}
+			for k := range refs {
+				m[k] = true
+			}
+		}
+	}
+	return m, ok
+}
+
+// snapLive zwraca (z pamięci podręcznej) obiekty przypięte przez migawkę.
+// Indeksy są niezmienne, więc wpis nigdy się nie przedawnia.
+func (v *Vault) snapLive(indexOID string) (map[string]bool, error) {
+	if r, ok := v.snapRefs[indexOID]; ok {
+		return r, nil
+	}
+	ix, err := v.loadIndex(indexOID)
+	if err != nil {
+		return nil, err
+	}
+	r := map[string]bool{indexOID: true}
+	ix.refs(r)
+	if v.snapRefs == nil {
+		v.snapRefs = map[string]map[string]bool{}
+	}
+	v.snapRefs[indexOID] = r
+	return r, nil
 }
 
 func (v *Vault) removeObject(hexID string) {
@@ -541,7 +626,11 @@ func (v *Vault) removeObject(hexID string) {
 // gcAll usuwa obiekty nieosiągalne z bieżącego i poprzedniego stanu
 // (np. pozostałości przerwanego zapisu).
 func (v *Vault) gcAll() {
-	live := v.live()
+	live, ok := v.live()
+	if !ok {
+		Logf("xordock: GC pominięte: indeks migawki niedostępny")
+		return
+	}
 	n := 0
 	for _, root := range []string{v.bRoot, v.aRoot} {
 		filepath.WalkDir(filepath.Join(root, objDir), func(p string, d fs.DirEntry, err error) error {

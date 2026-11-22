@@ -59,3 +59,37 @@ func TestKindIsHonest(t *testing.T) {
 		t.Fatalf("opis CSPRNG nie mówi wprost o braku gwarancji: %q", k)
 	}
 }
+
+// testOnlyMasks to deterministyczne źródło TEST_ONLY (S004 D-06). Leży w pliku
+// _test.go, więc nie może trafić do binarki wydaniowej.
+type testOnlyMasks struct{ next byte }
+
+func (s *testOnlyMasks) Fill(b []byte) error {
+	for i := range b {
+		b[i] = s.next
+		s.next++
+	}
+	return nil
+}
+
+// D-06: podział działa z dowolnym MaskSource; deterministyczna maska daje
+// powtarzalne udziały (tylko w testach).
+func TestTestOnlySourceDeterministic(t *testing.T) {
+	m := []byte("abc")
+	a1, _, _ := Split(m, &testOnlyMasks{})
+	a2, _, _ := Split(m, &testOnlyMasks{})
+	if !bytes.Equal(a1, a2) {
+		t.Fatal("deterministyczne źródło dało różne udziały")
+	}
+}
+
+type failingMasks struct{}
+
+func (failingMasks) Fill([]byte) error { return ErrLength }
+
+// D-06: błąd generatora zatrzymuje podział.
+func TestMaskErrorStopsSplit(t *testing.T) {
+	if _, _, err := Split([]byte("x"), failingMasks{}); err == nil {
+		t.Fatal("błąd źródła masek nie zatrzymał podziału")
+	}
+}

@@ -6,12 +6,10 @@ import (
 	"path"
 	"strings"
 	"time"
-
-	"xordock/internal/split"
 )
 
 // Operacje na ścieżkach. Każda kończy się jednym commitem, więc jest atomowa
-// względem awarii (FR-22). Używane przez warstwę WebDAV, eksport i testy.
+// względem awarii (FR-22). Używane przez adapter FUSE, eksport i testy.
 
 var (
 	ErrNotExist = fs.ErrNotExist
@@ -185,24 +183,7 @@ func (v *Vault) GetFile(p string) ([]byte, error) {
 	if !ok {
 		return nil, ErrNotExist
 	}
-	if e.Dir {
-		return nil, ErrIsDir
-	}
-	out := make([]byte, 0, e.Size)
-	for _, b := range e.Blocks {
-		blk, err := v.ReadBlock(b)
-		if err != nil {
-			split.Wipe(out)
-			return nil, err
-		}
-		out = append(out, blk...)
-		split.Wipe(blk)
-	}
-	if int64(len(out)) != e.Size {
-		split.Wipe(out)
-		return nil, ErrCorrupt
-	}
-	return out, nil
+	return readEntry(e, v.ReadBlock)
 }
 
 func (v *Vault) Mkdir(p string) error {

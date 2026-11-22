@@ -19,9 +19,13 @@ import (
 //
 // Każdy korzeń (A na SSD, B na karcie) ma:
 //
-//	xordock.json      nagłówek: format, identyfikator sejfu, strona, nazwa
+//	xordock.json      nagłówek: format, identyfikator sejfu, strona, nazwa, rola
 //	super             superblok: bieżący i poprzedni commit (+ suma SHA-256)
 //	obj/xx/<oid>      udział obiektu (bloku danych albo indeksu)
+//
+// Karta zapasowa (rola "backup", S004 §5.5) ma ten sam nagłówek (strona B),
+// katalog obj/ z kopiami udziałów B i katalog points/ z punktami odzyskiwania.
+// Nie ma superbloku: nie da się jej otworzyć jako karty roboczej (CG-09).
 //
 // Plik udziału obiektu:
 //
@@ -51,6 +55,7 @@ var (
 	ErrWrongCard    = errors.New("udział B należy do innego sejfu")
 	ErrInconsistent = errors.New("superbloki A i B są niespójne i nie da się ich bezpiecznie uzgodnić")
 	ErrBroken       = errors.New("sejf w stanie błędu po nieudanym zapisie; odmontuj i otwórz ponownie")
+	ErrSpareCard    = errors.New("to karta zapasowa (backup), nie robocza; do odzyskiwania użyj: xordock recover")
 )
 
 type ID [idLen]byte
@@ -88,7 +93,11 @@ type header struct {
 	BlockSize int       `json:"block_size"`
 	Created   time.Time `json:"created"`
 	Masks     string    `json:"masks"`
+	Role      string    `json:"role,omitempty"`  // "" = karta robocza, "backup" = zapasowa
+	Media     string    `json:"media,omitempty"` // identyfikator nośnika zapasowego
 }
+
+const roleBackup = "backup"
 
 func readHeader(root string, side Side) (header, error) {
 	var h header
@@ -122,11 +131,31 @@ type superblock struct {
 	Prev   commitRec `json:"prev"`
 }
 
-func encodeSuper(s superblock) []byte {
-	body, _ := json.Marshal(s)
+// seal zapisuje rekord JSON z sumą SHA-256 w drugiej linii (superblok, punkt
+// odzyskiwania). Suma wykrywa przypadkowe uszkodzenia, nie podmianę.
+func seal(v any) []byte {
+	body, _ := json.Marshal(v)
 	sum := sha256.Sum256(body)
 	return append(append(body, '\n'), []byte(hex.EncodeToString(sum[:])+"\n")...)
 }
+
+// unseal sprawdza sumę i dekoduje rekord zapisany przez seal.
+func unseal(data []byte, into any) error {
+	parts := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(parts) != 2 {
+		return ErrCorrupt
+	}
+	sum := sha256.Sum256([]byte(parts[0]))
+	if hex.EncodeToString(sum[:]) != parts[1] {
+		return ErrCorrupt
+	}
+	if err := json.Unmarshal([]byte(parts[0]), into); err != nil {
+		return ErrCorrupt
+	}
+	return nil
+}
+
+func encodeSuper(s superblock) []byte { return seal(s) }
 
 func readSuper(root string, side Side, vault ID) (superblock, error) {
 	var s superblock
@@ -134,15 +163,7 @@ func readSuper(root string, side Side, vault ID) (superblock, error) {
 	if err != nil {
 		return s, err
 	}
-	parts := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(parts) != 2 {
-		return s, fmt.Errorf("%w: superblok %c", ErrCorrupt, side)
-	}
-	sum := sha256.Sum256([]byte(parts[0]))
-	if hex.EncodeToString(sum[:]) != parts[1] {
-		return s, fmt.Errorf("%w: suma superbloku %c", ErrCorrupt, side)
-	}
-	if err := json.Unmarshal([]byte(parts[0]), &s); err != nil {
+	if err := unseal(data, &s); err != nil {
 		return s, fmt.Errorf("%w: superblok %c", ErrCorrupt, side)
 	}
 	if s.Vault != vault.String() {

@@ -5,3 +5,6 @@
 .env.*
 !.env.example
 bin/
+macos/build/
+macos/Xordock.xcodeproj/project.xcworkspace/
+macos/Xordock.xcodeproj/xcuserdata/

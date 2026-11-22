@@ -1,6 +1,6 @@
 # S002 — Katalog w Finderze przez FSKit
 
-- **Status:** szkic — decyzja o technologii podjęta, reszta do sesji specyfikacyjnej
+- **Status:** porzucona (2026-11-22). Własne rozszerzenie FSKit wymaga płatnego Apple Developer Program; właściciel wybrał S004 (macFUSE z backendem FSKit, bez własnego uprawnienia). Projekt `macos/` usunięty przed commitem. G1 i G2 sprawdzono w S004 (E2E, analiza rundy S004).
 - **Data:** 2026-11-22
 - **Powiązane:** S001 (F-01, F-02 w `docs/bezpieczenstwo/2026-11-22-runda-S001.md`), S003
 
@@ -27,8 +27,9 @@ Zostawiono stałe numery plików w indeksie sejfu (`Entry.Ino`) i operacje po nu
 | Artefakt | Rodzaj | Stan |
 | --- | --- | --- |
 | Xcode 27.2, macOS SDK 27.2 z FSKit | zewnętrzne | istnieje |
-| Certyfikat do podpisywania (Apple ID w Xcode → Personal Team albo Apple Developer Program) | zewnętrzne | [DO USTALENIA]: brak tożsamości do podpisu na stanowisku |
-| Uprawnienie `com.apple.developer.fskit.fsmodule` | zewnętrzne | [DO USTALENIA]: czy wystarczy darmowy Personal Team |
+| Certyfikat Apple Development (Personal Team `F5AKYMU3G6`) + pośredni Apple WWDR G3 | zewnętrzne | istnieje (2026-11-22), podpis działa |
+| Uprawnienie `com.apple.developer.fskit.fsmodule` | zewnętrzne | **blokada**: Personal Team go nie obsługuje; wymagany płatny Apple Developer Program |
+| `macos/Xordock.xcodeproj`, `macos/Xordock/XordockApp.swift` (aplikacja-kontener), `macos/XordockFS/` (moduł „hello” tylko do odczytu, Info.plist z `FSSupportsPathURLs`, entitlements) | kod | istnieje, kompiluje się; nie da się podpisać bez profilu |
 | `internal/vault` (silnik sejfu w Go) | kod | istnieje |
 | Most Go → Swift (`go build -buildmode=c-archive`) | kod | do utworzenia (rekomendacja, zob. §9) |
 | Projekt Xcode: aplikacja + rozszerzenie FSKit (Swift) | kod | do utworzenia |
@@ -41,6 +42,10 @@ Zostawiono stałe numery plików w indeksie sejfu (`Entry.Ino`) i operacje po nu
 - jak użytkownik montuje sejf (aplikacja w pasku menu, `mount -F`, automatycznie po włożeniu karty);
 - gdzie w FSKit buforować zapisy i kiedy zatwierdzać (zamknięcie pliku, `fsync`, bezczynność), żeby zachować FR-10 i FR-11;
 - zachowanie przy wyjęciu karty w trakcie pracy.
+
+### Wynik kroku 1 (2026-11-22)
+
+`xcodebuild -allowProvisioningUpdates`: *„Personal development teams … do not support the FSKit Module capability.”* Bez płatnego konta Apple nie wyda profilu z uprawnieniem FSKit, a macOS nie uruchomi rozszerzenia bez niego (obejście wymaga wyłączenia SIP/AMFI, co odrzucamy: obniża bezpieczeństwo całego Maca, E4).
 
 ## 6. Critical Path
 
@@ -66,4 +71,4 @@ Sejf montowany natywnie, F-01 i F-02 zamknięte.
 
 - **Odrzucone:** WebDAV (F-01, F-02), NFS loopback (decyzja właściciela), macFUSE (rozszerzenie jądra, obniżenie zabezpieczeń).
 - **Rekomendacja mostu:** silnik sejfu zostaje w Go i jest linkowany do rozszerzenia jako biblioteka C. Przepisanie silnika na Swift dałoby dwie implementacje formatu (M2: bez duplikacji). Osobny proces pomocniczy przez XPC to dodatkowa granica do zabezpieczenia.
-- **Otwarte pytanie:** czy właściciel doda Apple ID w Xcode (Settings → Accounts) i czy ma płatne konto Apple Developer?
+- **Otwarte pytanie:** czy właściciel dołącza do Apple Developer Program (99 USD/rok)? Bez tego S002 jest zablokowana.

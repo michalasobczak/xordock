@@ -9,7 +9,7 @@ Bazą są Engineering essentials z https://workwithrondo.com/#builders (E1–E6)
 **M1. Prostota.** Sprawdzone wzorce, jasne odpowiedzialności, tylko potrzebne abstrakcje.
 **M2. Bez duplikacji.** Wspólna logika w jednym miejscu; wyjątek uzasadniamy w specyfikacji.
 **M3. Stabilne technologie i minimum zależności.** Każda biblioteka i każda dodatkowa usługa (kolejka, NoSQL itp.) wymaga uzasadnienia.
-**Stack:** silnik sejfu w Go 1.27 (tylko biblioteka standardowa). macOS 27, Apple Silicon. Integracja z Finderem: natywne rozszerzenie FSKit (S002, Xcode 27.2); WebDAV i NFS odrzucone.
+**Stack:** Go 1.27, bez zależności Go spoza biblioteki standardowej; cgo do `Security.framework` (`SecRandomCopyBytes`) i libfuse3 z macFUSE 5.5 (backend FSKit, instalowany przez użytkownika, nie bundlowany). macOS 26+ (testowane na 27), Apple Silicon. WebDAV, NFS i własne rozszerzenie FSKit odrzucone (S002, S004).
 
 **M24. Jawne dane tylko w RAM.** Kod xordocka nigdy nie zapisuje jawnej treści ani nazw plików na dysk ani do logów. Bufory z treścią czyścimy (`split.Wipe`) po użyciu.
 **M25. Uczciwe deklaracje.** Każdy komunikat i dokument o bezpieczeństwie mówi, z jakiego źródła masek korzystamy; CSPRNG nigdy nie jest przedstawiany jako odporny na P = NP.

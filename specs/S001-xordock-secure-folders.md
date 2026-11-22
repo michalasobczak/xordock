@@ -1,6 +1,6 @@
 # S001 — xordock Secure Folders for macOS
 
-- **Status:** dostarczona (prototyp) — decyzje w §9.8, wyniki w §9.9. **Integrację WebDAV (`xordock mount`, `internal/davfs`, `internal/mount`) usunięto 2026-11-22** na decyzję właściciela; montowanie w Finderze przejmuje S002 (FSKit). §9.8–9.9 opisują stan z commitu `98e5fdc`.
+- **Status:** zastąpiona przez S004 (2026-11-22). Silnik (`internal/split`, `internal/vault`) przeszedł do S004. Integrację WebDAV usunięto 2026-11-22; §9.8–9.9 opisują stan z commitu `98e5fdc`.
 - **Data:** 2026-11-22
 - **Projekt:** xordock
 - **Platforma:** macOS, Apple Silicon

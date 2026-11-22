@@ -4,6 +4,39 @@ Chronologiczny zapis tego, co faktycznie dostarczono. Wpisy są uporządkowane w
 
 ## 2026-11-22
 
+### S005: poprawki z analizy bezpieczeństwa rundy S004
+
+- `backup prune` sprawdza oba udziały każdego obiektu najnowszego punktu, zanim usunie cokolwiek starszego (R4-01). Test `TestPruneRefusesIncompleteNewest`.
+- Indeks wczytany z udziałów jest walidowany (ścieżki kanoniczne, katalog nadrzędny), a eksport odmawia ścieżek spoza katalogu docelowego (R4-02). Test `TestIndexPathsValidated`.
+- Analiza: `docs/bezpieczenstwo/2026-11-22-runda-S004.md`. F-01 i F-02 z rundy S001 zamknięte. Otwarte R4-03 (średnie, złagodzone): błąd zatwierdzenia przy `close` nie dociera do aplikacji przez FSKit.
+
+### S004: katalog w Finderze przez macFUSE/FSKit, migawki, backup i odzyskiwanie
+
+- Specyfikacja właściciela wpisana jako S004. Rdzeń zostaje w Go (decyzja właściciela, odstępstwo od ADR-001), decyzje A-01–A-12 w S004 §9. S001 zastąpiona, S002 porzucona; niezacommitowany projekt `macos/` z własnym modułem FSKit usunięty.
+- `internal/split`: maski z `SecRandomCopyBytes` (cgo, kontrola kodu wyniku), opis „ochrona praktyczna, bez gwarancji informacyjno-teoretycznej”; deterministyczne źródło TEST_ONLY tylko w testach.
+- `internal/vault`:
+  - Migawki w indeksie dzielonym XOR (`CreateSnapshot`, `Snapshots`, `DeleteSnapshot`, `SnapshotView`, `Changes`). GC respektuje migawki i wstrzymuje się, gdy indeks migawki jest nieczytelny.
+  - Backup na kartę zapasową (rola `backup` w nagłówku): przypięcie, kopia brakujących udziałów B, weryfikacja, punkt READY. Sprawdzanie miejsca przed zmianą, `PruneBackup`.
+  - Odzyskiwanie (`OpenRecovery`, `Verify`, `View`), `ExportTo`, `CopyInto` (nowy sejf, nowe maski). `FindCards`, `fsck` obejmuje migawki. Karta zapasowa odrzucana jako robocza.
+- `internal/fusefs`: system plików nad silnikiem: bufory zapisu w RAM, spill pełnych bloków powyżej 64 MiB, commit przy flush/fsync/release, obcinanie, rename (EXCL; SWAP → ENOTSUP), stan niedostępny po wyjęciu karty z czyszczeniem buforów.
+- `internal/fusemount`: most cgo do libfuse3 z macFUSE (`backend=fskit`), nadzór karty co 1 s z wymuszonym odmontowaniem, wykrycie nieudanego montowania. `chmod`/`chown` bez skutku (A-06).
+- CLI: `mount`, `unmount`, `status`, `snapshot create|list|rm`, `backup [prune]`, `recover list|verify|export|restore`; karty rozpoznawane po identyfikatorze sejfu i roli.
+- Testy: 20 nowych, razem 44 plus `TestPerf` (migawki, GC, backup z awariami na 3 etapach, brak miejsca, retencja, odzyskiwanie, CG-09, brak jawnej treści na karcie zapasowej, adapter: model losowych zapisów, spill, katalogi, obcinanie, wyjęcie karty, usunięcie otwartego pliku; źródło masek TEST_ONLY i błąd generatora). Dwa z nich (S005) dochodzą w osobnym wpisie wyżej.
+- E2E (macOS 27.0, macFUSE 5.5.0, karta SD HFS+, obrazy dysku jako karta zapasowa i nowa karta):
+  - montowanie w Finderze, mkdir, zapis i `cmp` 5 MB i 30 MiB, dopisywanie, rename między katalogami, 30 małych plików, usuwanie, `truncate`;
+  - brak markera i nazw w A, B, na karcie zapasowej, w nowym sejfie, `/private/tmp` i `/private/var/folders`;
+  - symulowane wyjęcie karty: odmontowanie po ≤ 1,25 s;
+  - `fsck`, migawka, backup, zmiana po backupie, `recover verify/export/restore` bez karty roboczej: dokładne bajty punktu, bez późniejszej zmiany;
+  - sejfy testowe usunięte z karty.
+- Poprawione w trakcie E2E: `chmod` zwracający ENOTSUP blokował `mkdir`/`create` przez FSKit; CLI zgłaszało montowanie i odmontowanie mimo nieudanego montowania albo awaryjnego odmontowania.
+- Dokumentacja: `docs/format-v1.md`, `docs/recovery.md`, aktualizacja `docs/threat-model.md`, `docs/uzytkowanie.md`, `MANIFEST.md` (stack).
+
+### S002 krok 1: próba FSKit
+
+- `macos/`: projekt Xcode (aplikacja-kontener `pl.indatify.xordock` + rozszerzenie FSKit `pl.indatify.xordock.fs`), moduł „hello” tylko do odczytu. Kompiluje się (Xcode 27.2, macOS SDK 27.2).
+- Podpis: certyfikat Apple Development i pośredni WWDR G3 zainstalowane przez właściciela.
+- **Blokada:** Personal Team nie obsługuje uprawnienia FSKit Module, więc Xcode nie tworzy profilu. Do dalszej pracy potrzebny płatny Apple Developer Program.
+
 ### S002 (przygotowanie): usunięcie WebDAV, kierunek FSKit
 
 - Właściciel odrzucił WebDAV i NFS; integracja z Finderem ma być natywna (FSKit). Usunięto `xordock mount`, `internal/davfs`, `internal/mount` i zależność `golang.org/x/net`. Projekt nie ma zależności zewnętrznych.
