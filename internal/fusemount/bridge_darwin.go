@@ -4,7 +4,7 @@ package fusemount
 
 /*
 #cgo CFLAGS: -I/usr/local/include/fuse3 -D_FILE_OFFSET_BITS=64
-#cgo LDFLAGS: -L/usr/local/lib -lfuse3
+#cgo LDFLAGS: -ldl
 #include <stdlib.h>
 #include "bridge.h"
 */
@@ -28,7 +28,7 @@ func gostr(p *C.char) string { return C.GoString(p) }
 
 //export xdDestroy
 func xdDestroy() {
-	if cur != nil {
+	if cur != nil && !cur.IsProbe() {
 		if err := cur.SyncAll(); err != nil {
 			vault.Logf("xordock: zatwierdzenie przy odmontowaniu: %v", err)
 		}
@@ -186,9 +186,16 @@ func run(fs *fusefs.FS, mountpoint string, opts string) error {
 		return errFuseNew
 	case -2:
 		return errMount
+	case -3:
+		return ErrNoMacFUSE
 	default:
 		return syscall.Errno(-r)
 	}
 }
 
 func exitLoop() { C.xd_exit() }
+
+// Available: biblioteka libfuse3 z macFUSE daje się załadować (S011 W-02).
+// CLI ładuje ją dopiero przy montowaniu (dlopen), więc bez macFUSE działa
+// wszystko poza montowaniem.
+func Available() bool { return C.xd_available() != 0 }

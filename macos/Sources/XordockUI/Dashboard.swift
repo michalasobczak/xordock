@@ -89,6 +89,7 @@ public struct Dashboard: View {
         return VStack(alignment: .leading, spacing: 20) {
             Text(vault.name).font(.largeTitle.weight(.semibold))
             StatusCard(health: health, busy: busy) { actions.primary(health.action) }
+                .tourAnchor(.status)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) { ForEach(tiles) { TileView(tile: $0).frame(minWidth: 140) } }
                 VStack(spacing: 12) {
@@ -96,6 +97,7 @@ public struct Dashboard: View {
                     HStack(spacing: 12) { ForEach(tiles.suffix(2)) { TileView(tile: $0) } }
                 }
             }
+            .tourAnchor(.tiles)
             actionRow(primary: health.action)
             details
         }
@@ -108,15 +110,19 @@ public struct Dashboard: View {
         HStack(spacing: 10) {
             if vault.mounted {
                 Button("Odmontuj", systemImage: "eject", action: actions.unmount)
+                    .tourAnchor(.unmount)
             } else if primary != .mount {
                 Button("Otwórz sejf", systemImage: "lock.open", action: actions.mount)
                     .disabled(vault.card == nil || vault.error != nil)
+                    .tourAnchor(.mount)
             }
             if primary != .backup {
                 Button("Backup…", systemImage: "arrow.triangle.2.circlepath", action: actions.backup)
                     .disabled(vault.card == nil)
+                    .tourAnchor(.backup)
             }
             Button("Odzyskiwanie…", systemImage: "lifepreserver", action: actions.recovery)
+                .tourAnchor(.recovery)
             Spacer()
             Menu {
                 Button("Sprawdź spójność", action: actions.fsck).disabled(vault.card == nil || vault.mounted)
@@ -178,6 +184,7 @@ struct StatusCard: View {
                     .buttonStyle(PrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(busy)
+                    .tourAnchor(health.action == .mount ? .mount : (health.action == .backup ? .backup : .none))
             }
         }
         .padding(20)

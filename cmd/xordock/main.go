@@ -32,6 +32,8 @@ Użycie (wspólne flagi: --name sejf, --a KATALOG_A):
   xordock recover  --from-icloud --spare /Volumes/KARTA …   po utracie SSD: A z iCloud,
                    B z karty zapasowej albo roboczej
 
+Wymagania: xordock doctor [--probe-mount] [--json]
+
 Zapytania dla aplikacji (JSON):
   xordock vaults | volumes | points --spare /Volumes/ZAPASOWA
 
@@ -65,6 +67,8 @@ func main() {
 		err = cmdMount(os.Args[2:])
 	case "unmount":
 		err = cmdUnmount(os.Args[2:])
+	case "doctor":
+		err = cmdDoctor(os.Args[2:])
 	case "vaults":
 		err = cmdVaults(os.Args[2:])
 	case "volumes":

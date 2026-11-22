@@ -1,9 +1,11 @@
 import AppKit
 import SwiftUI
 import XordockCore
+import XordockUI
 
 struct NewVaultSheet: View {
     let model: AppModel
+    @Environment(TourController.self) private var tour: TourController?
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var card: VolumeInfo?
@@ -18,6 +20,9 @@ struct NewVaultSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Nowy sejf").font(.title2)
+            if tour?.step == .createVault {
+                TourHint("Wpisz nazwę, np. „Dokumenty”, i wybierz kartę lub pendrive. Na nim zapisze się połówka B.")
+            }
             Form {
                 TextField("Nazwa", text: $name)
                 if !name.isEmpty, let e = nameError { Text(e).foregroundStyle(.red).font(.caption) }
@@ -57,6 +62,7 @@ struct NewVaultSheet: View {
 
 struct BackupSheet: View {
     let model: AppModel
+    @Environment(TourController.self) private var tour: TourController?
     let vault: VaultInfo
     @Environment(\.dismiss) private var dismiss
     @State private var spare: VolumeInfo?
@@ -66,6 +72,9 @@ struct BackupSheet: View {
         let cands = vault.candidatesForSpare(in: model.volumes)
         VStack(alignment: .leading, spacing: 12) {
             Text("Backup sejfu „\(vault.name)”").font(.title2)
+            if tour?.step == .backup {
+                TourHint("Wybierz drugi nośnik (inny niż karta robocza) i kliknij „Wykonaj backup”.")
+            }
             Form {
                 VolumePicker(title: "Karta zapasowa", volumes: cands, selection: $spare)
                 if cands.isEmpty {

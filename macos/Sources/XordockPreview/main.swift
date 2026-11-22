@@ -54,4 +54,51 @@ let cases: [(String, VaultInfo, Bool)] = [
     }
 }
 
-MainActor.assumeIsolated { render() }
+@MainActor func save<V: View>(_ v: V, _ name: String, dark: Bool) {
+    let view = v.background(dark ? Color(white: 0.16) : Color(white: 0.98)).environment(\.colorScheme, dark ? .dark : .light)
+    let r = ImageRenderer(content: view)
+    r.scale = 1
+    guard let img = r.nsImage, let tiff = img.tiffRepresentation,
+          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return print("błąd \(name)") }
+    let f = out.appendingPathComponent("\(name)-\(dark ? "ciemny" : "jasny").png")
+    try! png.write(to: f)
+    print(f.path)
+}
+
+// S010: ekrany wprowadzenia, dymki, pytanie przy starcie.
+@MainActor func renderTutorial() {
+    for dark in [false, true] {
+        for i in Intro.pages.indices {
+            save(IntroView(start: i, onFinish: {}, onSkip: {}), "intro-\(i + 1)", dark: dark)
+        }
+        for s in [TourStep.mount, .backup, .menuBar] {
+            save(TourBubble(step: s, number: s.rawValue + 1, onNext: {}, onFinish: {}), "dymek-\(s)", dark: dark)
+        }
+        save(StartPrompt(askAtLaunch: .constant(true), onStart: {}, onLater: {}), "start", dark: dark)
+    }
+}
+
+// S011: arkusz wymagań z brakami.
+@MainActor func renderRequirements() {
+    let r = DoctorResult(macfuseVersion: nil, checks: [
+        RequirementCheck(id: "macos", title: "macOS 26 lub nowszy", level: "ok", detail: "macOS 27.0"),
+        RequirementCheck(id: "macfuse", title: "macFUSE 5.5 lub nowszy", level: "error",
+                         detail: "macFUSE nie jest zainstalowany. Bez niego sejfu nie da się otworzyć w Finderze.",
+                         fixLabel: "Pobierz macFUSE", fixURL: "https://macfuse.github.io/"),
+        RequirementCheck(id: "extension", title: "Rozszerzenie systemu plików macFUSE", level: "unknown",
+                         detail: "Nie sprawdzono. Sprawdzenie wymaga próbnego montowania."),
+        RequirementCheck(id: "filevault", title: "FileVault", level: "ok", detail: "Włączony."),
+        RequirementCheck(id: "icloud", title: "iCloud Drive", level: "warning",
+                         detail: "Niedostępny. Backup nie zrobi kopii udziału A, więc utrata Maca = utrata danych.",
+                         fixLabel: "Otwórz ustawienia iCloud", fixURL: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings:icloud"),
+    ])
+    for dark in [false, true] {
+        save(RequirementsView(result: r, checking: false, onRecheck: {}, onClose: {}), "wymagania", dark: dark)
+    }
+}
+
+MainActor.assumeIsolated {
+    render()
+    renderTutorial()
+    renderRequirements()
+}

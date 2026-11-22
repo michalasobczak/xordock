@@ -15,6 +15,9 @@ import (
 	"xordock/internal/vault"
 )
 
+// ErrNoMacFUSE: brak biblioteki libfuse3 z macFUSE (S011).
+var ErrNoMacFUSE = errors.New("brak macFUSE 5.5+ (biblioteka /usr/local/lib/libfuse3.4.dylib); zainstaluj macFUSE ze strony https://macfuse.github.io/")
+
 var (
 	errFuseNew = errors.New("libfuse odrzucił opcje montowania")
 	errMount   = errors.New("montowanie nieudane: sprawdź, czy rozszerzenie macFUSE jest włączone w Ustawieniach systemowych → Ogólne → Rozszerzenia i elementy logowania → Rozszerzenia systemu plików")
@@ -25,6 +28,9 @@ var (
 // sprawdza obecność karty roboczej; po jej wyjęciu wolumen przechodzi w stan
 // niedostępny i jest wymuszenie odmontowywany (F-04, SC-03).
 func Mount(v *vault.Vault, mountpoint, volname string, onMounted func()) error {
+	if !Available() {
+		return ErrNoMacFUSE
+	}
 	fs := fusefs.New(v)
 	defer fs.Close()
 	done := make(chan struct{})

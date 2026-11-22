@@ -223,3 +223,46 @@ func TestUnlinkWhileOpen(t *testing.T) {
 		t.Fatal("usunięty plik wrócił")
 	}
 }
+
+// S011 G1, G5: wolumen próbny bez sejfu. Katalog główny odpowiada, każda
+// inna operacja daje EIO i żadna nie sięga do (nieistniejącego) sejfu.
+func TestProbeFS(t *testing.T) {
+	f := NewProbe()
+	if a, e := f.Getattr("/"); e != 0 || !a.Dir {
+		t.Fatalf("katalog główny: %v %v", a, e)
+	}
+	eio := func(name string, e syscall.Errno) {
+		t.Helper()
+		if e != syscall.EIO {
+			t.Errorf("%s: %v, oczekiwano EIO", name, e)
+		}
+	}
+	_, e := f.Getattr("/x")
+	eio("getattr", e)
+	_, e = f.Readdir("/")
+	eio("readdir", e)
+	eio("mkdir", f.Mkdir("/k"))
+	eio("unlink", f.Unlink("/x"))
+	eio("rmdir", f.Rmdir("/k"))
+	eio("rename", f.Rename("/a", "/b", 0))
+	_, e = f.Open("/x", false)
+	eio("open", e)
+	_, e = f.Create("/x")
+	eio("create", e)
+	_, e = f.Read(1, 0, 10)
+	eio("read", e)
+	_, e = f.Write(1, 0, []byte("x"))
+	eio("write", e)
+	eio("truncate", f.Truncate("/x", 0, 0))
+	eio("utimens", f.Utimens("/x", time.Now()))
+	f.Flush(1)
+	f.Release(1)
+	f.Unavailable(syscall.ENXIO)
+	if f.SyncAll() == nil {
+		t.Error("SyncAll na wolumenie próbnym zgłosił sukces")
+	}
+	if f.BRoot() != "/" {
+		t.Error("BRoot")
+	}
+	f.Close()
+}

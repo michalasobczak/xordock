@@ -226,3 +226,85 @@ func sampleVault() throws -> VaultInfo {
         #expect(h.detail.count <= 120, "\(h.detail)")
     }
 }
+
+// S010 G1: maszyna stanów samouczka.
+@Test func tourFlow() throws {
+    var v = try sampleVault()
+    v.mounted = false
+    var t = Tour()
+    t.start(nil)
+    #expect(t.step == .createVault)
+    do { let c = t.update(nil); #expect(!c) }
+    do { let c = t.update(v); #expect(c && t.step == .status) } // sejf powstał
+    t.back(v)
+    #expect(t.step == .status) // nie wracamy do „załóż sejf”, gdy sejf jest
+    t.next(v); #expect(t.step == .tiles)
+    t.next(v); #expect(t.step == .mount)
+    do { let c = t.update(v); #expect(!c) }
+    v.mounted = true
+    do { let c = t.update(v); #expect(c && t.step == .useFinder) }
+    do { let c = t.update(v); #expect(!c) } // krok ręczny
+    t.next(v); #expect(t.step == .unmount)
+    v.mounted = false
+    do { let c = t.update(v); #expect(c && t.step == .backup) }
+    do { let c = t.update(v); #expect(!c) } // ten sam punkt co przy wejściu
+    v.lastBackup?.point = "nowy"
+    do { let c = t.update(v); #expect(c && t.step == .recovery) }
+    t.next(v); #expect(t.step == .menuBar)
+    t.next(v); #expect(!t.active)
+
+    var u = Tour()
+    u.start(v)
+    #expect(u.step == .status && u.number == 2)
+    u.finish()
+    #expect(!u.active)
+}
+
+// S010 G2: treść zwięzła.
+@Test func tutorialTexts() {
+    #expect(Intro.pages.count == 6)
+    for p in Intro.pages {
+        #expect(p.title.split(separator: " ").count <= 6, "\(p.title)")
+        #expect(p.text.count <= 320, "\(p.title): \(p.text.count)")
+    }
+    for s in TourStep.allCases {
+        #expect(!s.title.isEmpty && s.text.count <= 220, "\(s): \(s.text.count)")
+    }
+}
+
+// S010 G3: samouczek nie wykonuje poleceń.
+@Test func tutorialRunsNoCommands() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    for rel in ["Sources/XordockCore/Tutorial.swift", "Sources/XordockUI/Tutorial.swift"] {
+        let f = root.appendingPathComponent(rel)
+        guard let s = try? String(contentsOf: f, encoding: .utf8) else { continue }
+        #expect(!s.contains("Commands.") && !s.contains("CLI("), "\(rel)")
+    }
+}
+
+// S011 G4: wynik doctor i reguły startu.
+@Test func requirementsRules() throws {
+    func result(_ macfuse: String, _ ext: String) throws -> DoctorResult {
+        let json = """
+        {"macfuseVersion": "5.5.0", "checks": [
+          {"id": "macos", "title": "macOS", "level": "ok", "detail": ""},
+          {"id": "macfuse", "title": "macFUSE", "level": "\(macfuse)", "detail": "", "fixLabel": "Pobierz", "fixURL": "https://macfuse.github.io/"},
+          {"id": "extension", "title": "Rozszerzenie", "level": "\(ext)", "detail": ""},
+          {"id": "icloud", "title": "iCloud", "level": "warning", "detail": ""}]}
+        """
+        return try jsonDecoder.decode(DoctorResult.self, from: Data(json.utf8))
+    }
+    let unknown = try result("ok", "unknown")
+    #expect(!unknown.hasErrors) // ostrzeżenie iCloud nie blokuje
+    #expect(unknown.needsProbe(confirmedFor: nil))
+    #expect(unknown.needsProbe(confirmedFor: "5.4.0")) // nowa wersja macFUSE → ponowna próba
+    #expect(!unknown.needsProbe(confirmedFor: "5.5.0"))
+    #expect(unknown.applyingConfirmation("5.5.0").checks[2].level == "ok")
+    #expect(unknown.applyingConfirmation("5.4.0").checks[2].level == "unknown")
+    let missing = try result("error", "unknown")
+    #expect(missing.hasErrors && !missing.needsProbe(confirmedFor: nil))
+    #expect(missing.checks[1].fixURL == "https://macfuse.github.io/")
+    #expect(try result("ok", "ok").confirmedVersion == "5.5.0")
+    #expect(try result("ok", "error").hasErrors)
+    #expect(Commands.doctor(probe: true) == ["doctor", "--json", "--probe-mount"])
+}

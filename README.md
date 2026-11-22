@@ -29,6 +29,8 @@ open build/xordock.app
 
 ![Pulpit sejfu](docs/ui/1-ok-jasny.png)
 
+Przy starcie aplikacja sprawdza wymagania (macOS 26+, macFUSE 5.5+, włączone rozszerzenie, FileVault, iCloud Drive) i przy brakach pokazuje, co naprawić. To samo z terminala: `./bin/xordock doctor --probe-mount`. Potem proponuje samouczek: kilka ekranów o tym, jak działa ochrona, a potem przejście przez zakładanie sejfu, otwieranie i backup z dymkami przy przyciskach. Pytanie wyłączysz w Ustawieniach (⌘,).
+
 Ikona kłódki pojawi się w pasku menu, a „Otwórz xordock…” otwiera okno. Pliki A należą do Ciebie, więc nic nie uruchamiaj przez `sudo`.
 
 ### CLI
@@ -95,3 +97,5 @@ Metodyka [Rondo + Context-Driven-Development](https://workwithrondo.com):
 | [S007](specs/S007-aplikacja-macos.md) | Aplikacja macOS: pasek menu i okno | dostarczona; G6, G9 do testu właściciela |
 | [S008](specs/S008-kopia-A-w-icloud.md) | Kopia udziału A w iCloud Drive | dostarczona; G7 do testu właściciela |
 | [S009](specs/S009-przejrzysty-pulpit.md) | Przejrzysty pulpit sejfu | dostarczona |
+| [S011](specs/S011-sprawdzanie-wymagan.md) | Sprawdzanie wymagań przy starcie | dostarczona |
+| [S010](specs/S010-samouczek.md) | Samouczek: wprowadzenie i prowadzenie przez akcje | dostarczona; przejście do sprawdzenia przez właściciela |

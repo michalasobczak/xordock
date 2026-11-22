@@ -6,3 +6,4 @@
 int xd_fill(void *filler, void *buf, char *name, uint64_t ino, int isdir, int64_t size, int64_t ms, long mns);
 int xd_run(char *mountpoint, int argc, char **argv);
 void xd_exit(void);
+int xd_available(void);

@@ -4,6 +4,32 @@ Chronologiczny zapis tego, co faktycznie dostarczono. Wpisy są uporządkowane w
 
 ## 2026-11-22
 
+### S011: sprawdzanie wymagań przy starcie
+
+- Aplikacja przy starcie sprawdza:
+  - macOS 26+;
+  - macFUSE 5.5+;
+  - włączone rozszerzenie systemu plików macFUSE;
+  - FileVault i iCloud Drive (zalecane).
+
+  Przy brakach pokazuje arkusz „Wymagania” z przyciskami „Pobierz macFUSE” / „Otwórz Ustawienia systemowe”. Gdy wszystko gra, nic nie pokazuje. Arkusz jest też w menu kłódki i w Ustawieniach.
+- Rozszerzenie FSKit sprawdzane próbnym montowaniem pustego wolumenu bez sejfu (ok. 1 s). Wynik zapamiętany dla wersji macFUSE, a każde udane montowanie sejfu go potwierdza.
+- CLI: nowe `xordock doctor [--probe-mount] [--json]`. Biblioteka macFUSE ładowana dopiero przy montowaniu (`dlopen`), więc bez macFUSE CLI działa (status, backup, odzyskiwanie) i jasno odmawia tylko montowania.
+- Testy: Go `TestProbeFS`, `TestDoctor`; Swift `requirementsRules` (razem 17). E2E: próba i montowanie sejfu na pendrivie z dynamicznie ładowaną biblioteką.
+
+### S010: samouczek
+
+- Przy każdym starcie aplikacja pyta „Uruchomić samouczek?” i oferuje pole „Nie pytaj przy starcie”. Ustawienie zmienia się w Ustawieniach (⌘, albo menu kłódki), skąd można też uruchomić samouczek w dowolnej chwili.
+- Wprowadzenie: 6 ekranów z przyciskiem „Dalej”:
+  - problem;
+  - dwie połówki;
+  - A na Macu, B na karcie;
+  - kopie (karta zapasowa, iCloud);
+  - pięć zasad;
+  - uczciwe granice ochrony.
+- Prowadzenie po prawdziwym sejfie: dymki przy przyciskach, pasek kroków na dole okna, wskazówki w arkuszach. Kroki „załóż sejf”, „otwórz”, „odmontuj” i „zrób backup” kończą się same, gdy wykonasz akcję. Samouczek niczego nie robi za użytkownika.
+- Testy Swift: 3 nowe (maszyna stanów, długość tekstów, brak poleceń w kodzie samouczka), razem 16. Rendery ekranów w `docs/ui/`.
+
 ### S009: przejrzysty pulpit sejfu w aplikacji
 
 - Widok sejfu to pulpit zamiast formularza:

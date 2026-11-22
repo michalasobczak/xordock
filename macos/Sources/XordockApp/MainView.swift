@@ -13,9 +13,12 @@ struct RecoveryTarget: Hashable {
 }
 
 enum SheetKind: Identifiable {
-    case newVault, backup(VaultInfo), recovery(RecoveryTarget)
+    case newVault, backup(VaultInfo), recovery(RecoveryTarget), startPrompt, intro, requirements
     var id: String {
         switch self {
+        case .requirements: return "req"
+        case .startPrompt: return "start"
+        case .intro: return "intro"
         case .newVault: return "new"
         case .backup(let v): return "b-" + v.name
         case .recovery(let r): return "r-" + r.name
@@ -26,6 +29,7 @@ enum SheetKind: Identifiable {
 struct MainView: View {
     @Bindable var model: AppModel
     @State private var sheet: SheetKind?
+    @AppStorage(AppModel.askKey) private var askAtLaunch = true
 
     var body: some View {
         NavigationSplitView {
@@ -57,6 +61,7 @@ struct MainView: View {
                 }
                 .padding(8)
                 .disabled(model.busy != nil)
+                .tourAnchor(.newVault, edge: .trailing)
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
@@ -71,10 +76,25 @@ struct MainView: View {
                     ContentUnavailableView("Brak sejfów", systemImage: "lock.shield",
                                            description: Text("Załóż pierwszy sejf przyciskiem „Nowy sejf…”."))
                 }
+                Spacer(minLength: 0)
+                TourBar()
             }
         }
-        .sheet(item: $sheet) { kind in
+        .environment(model.tour)
+        .onAppear(perform: checkPending)
+        .onChange(of: model.pendingStartPrompt) { checkPending() }
+        .onChange(of: model.pendingIntro) { checkPending() }
+        .onChange(of: model.pendingRequirements) { checkPending() }
+        .sheet(item: $sheet, onDismiss: checkPending) { kind in
             switch kind {
+            case .requirements:
+                RequirementsView(result: model.requirements, checking: model.checkingRequirements,
+                                 onRecheck: { Task { await model.checkRequirements(forceProbe: true) } },
+                                 onClose: { sheet = nil })
+            case .startPrompt:
+                StartPrompt(askAtLaunch: $askAtLaunch, onStart: { sheet = .intro }, onLater: { sheet = nil })
+            case .intro:
+                IntroView(onFinish: startTour, onSkip: startTour)
             case .newVault: NewVaultSheet(model: model)
             case .backup(let v): BackupSheet(model: model, vault: v)
             case .recovery(let r): RecoverySheet(model: model, target: r)
@@ -85,6 +105,27 @@ struct MainView: View {
                 Button { Task { await model.refresh() } } label: { Label("Odśwież", systemImage: "arrow.clockwise") }
             }
         }
+    }
+
+    private func checkPending() {
+        guard sheet == nil else { return }
+        if model.pendingRequirements {
+            // Braki wyprzedzają pytanie o samouczek (S011).
+            model.pendingRequirements = false
+            sheet = .requirements
+        } else if model.pendingStartPrompt {
+            model.pendingStartPrompt = false
+            sheet = .startPrompt
+        } else if model.pendingIntro {
+            model.pendingIntro = false
+            sheet = .intro
+        }
+    }
+
+    private func startTour() {
+        sheet = nil
+        // Dymek pokazujemy po zamknięciu arkusza, żeby popover miał kotwicę.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.tour.start() }
     }
 
     private func actions(for v: VaultInfo) -> DashboardActions {

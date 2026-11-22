@@ -155,22 +155,59 @@ static const struct fuse_operations xd_ops = {
 
 static struct fuse *xd_fuse;
 
+/* S011 W-02: libfuse3 z macFUSE ładowana przy pierwszym użyciu (dlopen),
+ * a nie przez loader. Bez macFUSE CLI startuje i działa poza montowaniem.
+ * Ścieżka jest stała (instalacja macFUSE), bez przeszukiwania DYLD_*. */
+#include <dlfcn.h>
+
+static int xd_loaded = -1;
+static struct fuse *(*p_new_31)(struct fuse_args *, const struct fuse_operations *, size_t,
+                                struct libfuse_version *, void *);
+static int (*p_mount)(struct fuse *, const char *);
+static int (*p_loop)(struct fuse *);
+static void (*p_unmount)(struct fuse *);
+static void (*p_destroy)(struct fuse *);
+static void (*p_exit)(struct fuse *);
+
+int xd_available(void) {
+	if (xd_loaded >= 0) return xd_loaded;
+	xd_loaded = 0;
+	void *h = dlopen("/usr/local/lib/libfuse3.4.dylib", RTLD_NOW | RTLD_LOCAL);
+	if (h == NULL) return 0;
+	p_new_31 = dlsym(h, "_fuse_new_31");
+	p_mount = dlsym(h, "fuse_mount");
+	p_loop = dlsym(h, "fuse_loop");
+	p_unmount = dlsym(h, "fuse_unmount");
+	p_destroy = dlsym(h, "fuse_destroy");
+	p_exit = dlsym(h, "fuse_exit");
+	if (p_new_31 && p_mount && p_loop && p_unmount && p_destroy && p_exit) xd_loaded = 1;
+	return xd_loaded;
+}
+
 int xd_run(char *mountpoint, int argc, char **argv) {
+	if (!xd_available()) return -3;
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
-	xd_fuse = fuse_new(&args, &xd_ops, sizeof(xd_ops), NULL);
+	struct libfuse_version version = {
+		.major = FUSE_MAJOR_VERSION,
+		.minor = FUSE_MINOR_VERSION,
+		.hotfix = FUSE_HOTFIX_VERSION,
+		.darwin_extensions_enabled = FUSE_DARWIN_ENABLE_EXTENSIONS,
+		.padding = 0,
+	};
+	xd_fuse = p_new_31(&args, &xd_ops, sizeof(xd_ops), &version, NULL);
 	if (xd_fuse == NULL) return -1;
-	if (fuse_mount(xd_fuse, mountpoint) != 0) {
-		fuse_destroy(xd_fuse);
+	if (p_mount(xd_fuse, mountpoint) != 0) {
+		p_destroy(xd_fuse);
 		xd_fuse = NULL;
 		return -2;
 	}
-	int r = fuse_loop(xd_fuse);
-	fuse_unmount(xd_fuse);
-	fuse_destroy(xd_fuse);
+	int r = p_loop(xd_fuse);
+	p_unmount(xd_fuse);
+	p_destroy(xd_fuse);
 	xd_fuse = NULL;
 	return r;
 }
 
 void xd_exit(void) {
-	if (xd_fuse) fuse_exit(xd_fuse);
+	if (xd_fuse && p_exit) p_exit(xd_fuse);
 }

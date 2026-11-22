@@ -71,6 +71,15 @@ func New(v *vault.Vault) *FS {
 	return &FS{v: v, nodes: map[uint64]*node{}, handles: map[uint64]*node{}, nextFH: 1}
 }
 
+// errProbe: stan wolumenu próbnego (S011), bez sejfu.
+var errProbe = errors.New("wolumen próbny bez sejfu")
+
+// NewProbe zwraca system plików bez sejfu do próbnego montowania (S011 W-03):
+// katalog główny odpowiada, każda inna operacja kończy się EIO.
+func NewProbe() *FS {
+	return &FS{down: errProbe, nodes: map[uint64]*node{}, handles: map[uint64]*node{}, nextFH: 1}
+}
+
 // Errno mapuje błędy silnika na kody POSIX. Nieznany błąd to EIO, nigdy sukces.
 func Errno(err error) syscall.Errno {
 	switch {
@@ -641,8 +650,16 @@ func (f *FS) SyncAll() error {
 	return first
 }
 
+// IsProbe: wolumen próbny bez sejfu (S011).
+func (f *FS) IsProbe() bool { return f.v == nil }
+
 // BRoot zwraca katalog udziału B (pojemność wolumenu, statfs).
-func (f *FS) BRoot() string { return f.v.BRoot() }
+func (f *FS) BRoot() string {
+	if f.v == nil {
+		return "/"
+	}
+	return f.v.BRoot()
+}
 
 // Close czyści bufory po odmontowaniu.
 func (f *FS) Close() {

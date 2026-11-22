@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import XordockCore
+import XordockUI
 
 /// Stan aplikacji. Jedynym źródłem prawdy jest CLI (`vaults`, `volumes`);
 /// model niczego nie czyta z udziałów (S007 G5).
@@ -20,12 +21,23 @@ final class AppModel {
     var cliMissing = false
 
     let cli: CLI?
+    let tour = TourController()
+    /// Okno ma pokazać pytanie o samouczek (start) albo od razu wprowadzenie.
+    var pendingStartPrompt = false
+    var pendingIntro = false
+    /// Wymagania (S011): wynik ostatniego sprawdzenia i arkusz do pokazania.
+    var requirements: DoctorResult?
+    var checkingRequirements = false
+    var pendingRequirements = false
+    static let confirmedKey = "fskitConfirmedForMacFUSE"
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
 
     init() {
         cli = CLI.locate()
         cliMissing = cli == nil
+        UserDefaults.standard.register(defaults: [Self.askKey: true])
+        pendingStartPrompt = UserDefaults.standard.bool(forKey: Self.askKey)
         let nc = NSWorkspace.shared.notificationCenter
         for n in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
             observers.append(nc.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in
@@ -35,7 +47,7 @@ final class AppModel {
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
-        Task { await refresh() }
+        tour.vault = { [weak self] in self?.selected }
     }
 
     var selected: VaultInfo? {
@@ -47,6 +59,41 @@ final class AppModel {
         return state.orphanCopies.first { orphanTag + $0.name == s }
     }
 
+    static let askKey = "askTutorialAtLaunch"
+
+    /// Start aplikacji: wymagania, potem stan sejfów. Zwraca true, gdy okno
+    /// powinno się otworzyć (braki albo pytanie o samouczek).
+    func startup() async -> Bool {
+        await checkRequirements(forceProbe: false)
+        await refresh()
+        return pendingRequirements || pendingStartPrompt
+    }
+
+    /// `doctor`; próba montowania, gdy rozszerzenie niepotwierdzone dla tej
+    /// wersji macFUSE albo na żądanie (S011 W-04).
+    func checkRequirements(forceProbe: Bool) async {
+        guard let cli, !checkingRequirements else { return }
+        checkingRequirements = true
+        defer { checkingRequirements = false }
+        let confirmed = UserDefaults.standard.string(forKey: Self.confirmedKey)
+        do {
+            var r = try await cli.query(DoctorResult.self, Commands.doctor(probe: false))
+            if forceProbe || r.needsProbe(confirmedFor: confirmed) {
+                r = try await cli.query(DoctorResult.self, Commands.doctor(probe: true))
+                if let v = r.confirmedVersion {
+                    UserDefaults.standard.set(v, forKey: Self.confirmedKey)
+                } else if r.hasErrors {
+                    UserDefaults.standard.removeObject(forKey: Self.confirmedKey)
+                }
+            }
+            requirements = r.applyingConfirmation(UserDefaults.standard.string(forKey: Self.confirmedKey))
+            if requirements?.hasErrors == true { pendingRequirements = true }
+        } catch {
+            requirements = DoctorResult(checks: [RequirementCheck(id: "cli", title: "Silnik xordock", level: "error",
+                                                                  detail: error.localizedDescription, fixLabel: nil, fixURL: nil)])
+            pendingRequirements = true
+        }
+    }
     func refresh() async {
         guard let cli else { return }
         do {
@@ -59,6 +106,7 @@ final class AppModel {
             if selection == nil || !valid {
                 selection = state.vaults.first?.name ?? state.orphanCopies.first.map { orphanTag + $0.name }
             }
+            tour.update()
         } catch {
             errorText = "Nie udało się odczytać stanu: \(error.localizedDescription)"
         }
@@ -122,6 +170,10 @@ final class AppModel {
             await refresh()
             if state.vaults.first(where: { $0.name == name })?.mounted == true {
                 message = "Sejf „\(name)” otwarty w Finderze."
+                // Udane montowanie potwierdza włączone rozszerzenie (S011).
+                if let v = requirements?.macfuseVersion {
+                    UserDefaults.standard.set(v, forKey: Self.confirmedKey)
+                }
                 busy = nil
                 NSWorkspace.shared.open(URL(fileURLWithPath: v.mountpoint))
                 return
