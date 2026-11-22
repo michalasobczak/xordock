@@ -1,90 +1,198 @@
 # xordock
 
-> A macOS app that exposes an ordinary folder in Finder and stores its contents as two XOR shares: one on the Mac's internal SSD, the other on a removable SD card. Without the card the data cannot be reconstructed.
+**Your files, split into two halves. Each half on its own is random noise.**
 
-## Current state (2026-11-22)
+xordock is a macOS app that gives you an ordinary folder in Finder. Everything you put there is split with XOR into two shares: **share A** stays on your Mac, **share B** lives on a removable SD card or USB stick. Pull the card out and there is nothing on the Mac to read. Lose the card and the finder holds noise. Put the card back and the folder is there again.
 
-**Prototype S004: folder in Finder, snapshots, backup to a spare card, recovery after losing the card.** Not for production data.
-
-- Volume `/Volumes/xordock-<name>` in Finder via macFUSE 5.5 with the FSKit backend: no kext, SIP/AMFI enabled, no paid Apple account. Works: create, read, write, truncate, rename, delete, directories.
-- Every block (1 MiB) and the index with file names are split with XOR: A on the SSD, B on the working card. Every write creates a new object with a new mask. Commit through A→B superblocks with crash recovery.
-- Masks: **macOS CSPRNG (`SecRandomCopyBytes`)**. Practical protection, **not** information-theoretic and **no** resistance to P = NP.
-- Removing the working card: the volume is locked (EIO) and unmounted within ≤ 1.25 s.
-- Snapshots of xordock shares only (no APFS), backup of missing B shares to a spare card with a READY point, recovery from an A snapshot + spare card into a new vault with new masks or into a plaintext export.
-- **Share A copy in iCloud Drive** (S008) on every backup. You can lose the SSD, the working card or the spare card, one at a time.
-- **App** `xordock.app` (S007): menu bar icon and a window for creating a vault, mounting, backup and recovery, no terminal needed.
-- Known gap (S006, draft): the "A and B on different media" check compares volumes, not physical disks. A disk image or a second partition on the same disk passes.
-- Missing: the nightly 1 GiB test and fuzzing (CP-09), file permissions, `xattr`, symlinks, password, detection of deliberate share substitution. Open finding R4-03: a commit error on `close` does not reach the application (macFUSE/FSKit).
-- Performance (SSD + HFS+ SD card, through Finder): write ~10 MiB/s, small file ~220 ms.
-- Test environment: macOS 27.0, Apple Silicon, Go 1.27.4, Xcode 27.2, macFUSE 5.5.0 (libfuse3 3.18.3).
-
-## Usage
-
-### App
-
-```bash
-./scripts/build-app.sh
-open build/xordock.app
 ```
+   your file M ──┐
+                 ├─► A = M ⊕ R  ──► Mac (SSD)          + copy in iCloud Drive
+   random mask R ┴─► B = R      ──► working card       + copy on a spare card
+
+   M = A ⊕ B   (only with both halves)
+```
+
+> **Honest status:** xordock implements the one-time-pad construction, whose secrecy is *provable* and does not depend on P vs NP, **only if the masks are truly random**. Today the masks come from the macOS CSPRNG, so the protection xordock actually delivers is **practical (computational), with NO information-theoretic guarantee and no resistance to P = NP**. What is missing to close that gap is described below, in [What it takes](#what-it-takes-hardware-and-generator).
+
+### Two levels of protection
+
+| Where the masks come from | Protection | Depends on P vs NP? |
+|---|---|---|
+| **Kernel API** (`SecRandomCopyBytes` → kernel DRBG). **This is what xordock does today.** | **Practical (computational) protection.** Strong in practice, but it rests on the assumption that the DRBG cannot be predicted. | Yes: no resistance to P = NP. |
+| **Hardware generator read directly** (a physical TRNG/QRNG whose full-entropy output goes straight into the mask, *not* through the kernel's DRBG), with conditions 2–4 below met | **Information-theoretic protection** (perfect secrecy of each share). | No: secure whether or not P = NP. |
+
+The step from the first row to the second changes only the **mask source**. The XOR split, the block layout and the rule "keep A and B apart" stay the same. Apple Silicon Macs do not let apps read their built-in hardware generator directly, so the second row needs an external hardware generator (or an Intel Mac with `RDSEED`); see [What it takes](#what-it-takes-hardware-and-generator).
+
+## Why this is different from ordinary encryption
+
+AES, RSA, elliptic curves: almost all file encryption is secure *because* certain problems are believed to be hard to compute. Nobody has proven that. If P = NP turned out to be true with a practical algorithm, or someone found a shortcut for one specific cipher, data encrypted today could be read tomorrow. And attackers can store ciphertext now and wait.
+
+The **one-time pad** (Vernam cipher, 1917; proven by Shannon in 1949) is the one cipher whose security is a mathematical fact, not an assumption: the key is as long as the data, truly random and used once. No amount of computing power helps, because there is nothing to compute. Every possible file is equally consistent with what the attacker sees. P vs NP is irrelevant to it: the scheme does not *solve* P = NP, it simply does not depend on the answer.
+
+xordock uses exactly this construction as a **2-of-2 secret split**: the mask R is the one-time key, A is the ciphertext, and the two are stored on different devices. Each block (1 MiB) gets its own fresh mask, every write creates a new block with a new mask, and no mask is ever reused.
+
+## The proof
+
+Let the file block be an `n`-bit string `M` with any distribution. Let the mask `R` be **uniformly random over {0,1}ⁿ and independent of `M`**. The shares are `A = M ⊕ R` and `B = R`.
+
+**Share B alone.** `B = R` is chosen independently of `M`, so `P(M = m | B = b) = P(M = m)`. B carries no information about M.
+
+**Share A alone.** For any value `a` and any file `m`:
+
+```
+P(A = a | M = m) = P(m ⊕ R = a) = P(R = a ⊕ m) = 2⁻ⁿ
+```
+
+This does not depend on `m`, so `A` is independent of `M`. By Bayes:
+
+```
+P(M = m | A = a) = P(A = a | M = m) · P(M = m) / P(A = a) = 2⁻ⁿ · P(M = m) / 2⁻ⁿ = P(M = m)
+```
+
+Seeing A does not change the attacker's knowledge of M at all. This is Shannon's **perfect secrecy**. It holds against an adversary with unbounded time and computing power, so it holds whether or not P = NP, and also against quantum computers.
+
+**Both shares.** `A ⊕ B = M ⊕ R ⊕ R = M`. Whoever holds both has the file. That is the whole security model: **keep A and B apart.**
+
+### What the proof does not cover
+
+- **Length.** The size of each block and the number of blocks leak, so the approximate size of the vault is visible.
+- **Integrity.** XOR is malleable: flipping a bit in A flips the same bit in M. Each share carries a SHA-256 checksum that catches accidental damage, not a deliberate forger who controls a share.
+- **The open vault.** While mounted, files are plaintext on the Mac (RAM, app caches, temporary files). FileVault and unmounting matter.
+- **Copies.** Any A from one time + the B from the same time = the file. Old copies of A (SSD, iCloud, Time Machine) and of B (spare card) count too.
+
+## What it takes: hardware and generator
+
+The proof needs four conditions. Here is each one and where xordock stands today.
+
+| # | Condition | Required | xordock today |
+|---|---|---|---|
+| 1 | Truly random mask | Full-entropy output from a **physical** noise source (thermal/shot noise, quantum effects), with continuous health tests (NIST SP 800-90B: repetition count, adaptive proportion). **Not** a seeded deterministic generator: its output is only computationally indistinguishable from random. | ✗ Masks come from `SecRandomCopyBytes`, a DRBG seeded by hardware entropy. This gives practical protection only. |
+| 2 | Key as long as the data, never reused | One mask bit per data bit; new mask for every write. | ✓ 1 MiB blocks, fresh mask per immutable block, copy-on-write. |
+| 3 | Shares on separate devices | A and B never on the same physical medium or in the same account. | ◐ Volumes are checked, physical disks are not yet (S006): a disk image or a second partition on the same disk would pass. |
+| 4 | The mask is never stored elsewhere | B exists only on the cards; the mask is not logged or cached. | ✓ Masks go straight into share B; buffers are wiped; nothing is logged. |
+
+### The generator: what Macs offer
+
+- **Apple Silicon (MacBook, Mac mini, iMac with M1–M4).** The chip *has* a hardware random source. The macOS kernel samples it and runs SP 800-90B health tests on it (`sysctl kern.entropy.*`). But apps only ever get the output of a DRBG seeded from it: `SecRandomCopyBytes`, `getentropy`, `/dev/random`. There is no public API for raw hardware bits, and M1 Pro has no ARM `RNDR`/`RNDRRS` instructions (`FEAT_RNG` absent). **Built-in hardware cannot satisfy condition 1 on Apple Silicon.**
+- **Intel Mac (e.g. Mac mini 2018).** The CPU offers `RDSEED`, callable from an app, which returns conditioned output of Intel's on-chip entropy source rather than DRBG-expanded output. It is the closest a Mac gets to a built-in TRNG, at the cost of trusting a closed Intel design.
+- **External hardware TRNG or QRNG (USB).** Works with any Mac. Choose a device with a documented physical noise source, on-device health tests and full-entropy output (ideally an SP 800-90B validated entropy source). The throughput must cover the data rate: **every byte written to the vault consumes one random byte**, so 1 GB of files needs 1 GB of entropy.
+
+To make the claim, xordock would need a mask-source adapter for such a device (the `split.MaskSource` interface already isolates it): health tests at runtime, refusal to write when the source fails, a throughput test and an independent cryptographic review. Until then, the product claim stays "practical protection" (gates S004 CG-14 and SC-07).
+
+### Storage hardware
+
+- A Mac with macOS 26+ and **FileVault on** (share A and the open vault live there).
+- **Two removable media** for B: a working card and a spare card. SD cards or USB sticks, formatted APFS or Mac OS Extended (exFAT/FAT survive sudden removal worse). USB 3 is strongly recommended: a USB 2 stick writes about 3.7 MB/s.
+- **iCloud Drive** for the copy of share A, protected with 2FA and preferably Advanced Data Protection.
+- **macFUSE 5.5+** with its file system extension enabled (the app checks this at launch).
+
+## Who loses what, and what happens
+
+The rule behind every row: **any copy of A + the matching copy of B = your files.** A lives on the Mac, in iCloud Drive and possibly in Time Machine. B lives on the working card and the spare card.
+
+### Losing one thing
+
+| Lost or stolen | What the finder gets | Your data | What to do |
+|---|---|---|---|
+| **Working card** | Only B: noise. | Safe: A (Mac) + spare card. | `Recovery…` → restore to a new card with **new masks**. Then delete every copy of the old A (SSD, iCloud Drive incl. Recently Deleted, Time Machine), because the lost card + any old A = the files. |
+| **Spare card** | Only a copy of B. | Nothing lost. | Make a new backup to another card. Rotate as above (restore with new masks, delete old A copies), since the spare + iCloud A would be a full set. |
+| **Mac (SSD)** | A, protected by FileVault while the Mac is locked or off. Without a card: nothing. | Safe: iCloud A + spare or working card. | On the new Mac the app lists "Share A copies in iCloud without SSD" → `Recovery…`. Change the Apple ID password, since the Mac may be signed in to iCloud. |
+| **iCloud account** (taken over) | The copy of A. Without a card: nothing. | Safe. | Secure the account, then rotate: restore with new masks and delete old A copies. |
+
+### Losing two things
+
+| Lost together | Confidentiality | Your data |
+|---|---|---|
+| Mac + working card (e.g. a bag with the card in the port) | **Exposed** if the attacker gets past FileVault (Mac unlocked or password known). | Safe: iCloud A + spare card. |
+| Mac + spare card | **Exposed** under the same FileVault condition. | Safe: iCloud A + working card. |
+| Working card + iCloud account | **Exposed**: the attacker has A and B. | Safe: Mac + spare card. Rotate immediately. |
+| Both cards | Safe: no B anywhere. | **Lost**: A alone cannot be decoded. |
+| Mac + iCloud account | Safe: no B. | **Lost**, unless a Time Machine copy of A exists. |
+
+So: **never carry the cards together, never keep a card in the Mac when the vault is closed, never put a card's contents in iCloud or on the Time Machine disk.**
+
+## How to use it
+
+### Install and start
+
+1. Install [macFUSE](https://macfuse.github.io/) 5.5+ and enable it in System Settings → General → Login Items & Extensions → File System Extensions.
+2. Build and start the app:
+   ```bash
+   ./scripts/build-app.sh
+   open build/xordock.app
+   ```
+3. At launch the app checks the requirements (macOS, macFUSE, the extension via a one-second probe mount, FileVault, iCloud Drive) and shows what to fix. It then offers a **tutorial**: six short screens explaining the idea, then a guided walkthrough on your real vault. You can turn the prompt off in Settings (⌘,).
 
 ![Vault dashboard](docs/ui/1-ok-light.png)
 
-At startup the app checks the requirements (macOS 26+, macFUSE 5.5+, enabled extension, FileVault, iCloud Drive) and, if anything is missing, shows what to fix. The same from the terminal: `./bin/xordock doctor --probe-mount`. It then offers a tutorial: a few screens on how the protection works, followed by a walkthrough of creating a vault, opening it and backing up, with callouts next to the buttons. You can turn the prompt off in Settings (⌘,).
+### Everyday work
 
-A padlock icon appears in the menu bar, and "Open xordock…" opens the window. The A files belong to you, so do not run anything with `sudo`.
+1. **New vault…**: give it a name and pick the working card from the list.
+2. **Open vault**: the vault appears in Finder as a normal disk. Work with your files as usual.
+3. **Unmount** before you pull the card out. Pulling it out while mounted locks the volume within about a second, and uncommitted changes are lost.
+4. **Back up now** (weekly; the padlock in the menu bar turns into a warning when it is due): with both cards connected, the app takes a snapshot, copies B to the spare card and A to iCloud Drive, verifies both and records a READY recovery point.
+5. **Recovery… → Verify** from time to time, to check that the backup really restores.
 
-### CLI
+The dashboard always shows one status with one recommended action, plus four tiles: This Mac (A), working card (B), spare card (copy of B) and iCloud Drive (copy of A).
 
-Required: macFUSE 5.5+ (`brew install --cask macfuse`, installed by the user; xordock does not bundle it, see the macFUSE license) and the extension enabled in System Settings → General → Login Items & Extensions → File System Extensions.
+### From the terminal
 
 ```bash
 go build -o bin/xordock ./cmd/xordock
-./bin/xordock init --card /Volumes/xordock --name sejf
-./bin/xordock mount --name sejf            # until ejected in Finder / Ctrl-C
-./bin/xordock status --name sejf
-./bin/xordock snapshot create --name sejf
-./bin/xordock backup --name sejf --spare /Volumes/ZAPAS   # + copy of A to iCloud Drive
-./bin/xordock recover --name sejf --spare /Volumes/ZAPAS restore --card /Volumes/NOWA
+./bin/xordock doctor --probe-mount                               # requirements
+./bin/xordock init --card /Volumes/CARD --name docs              # new vault
+./bin/xordock mount --name docs                                  # until ejected / Ctrl-C
+./bin/xordock snapshot create --name docs
+./bin/xordock backup --name docs --spare /Volumes/SPARE          # B to the card, A to iCloud Drive
+./bin/xordock recover --name docs --spare /Volumes/SPARE verify
+./bin/xordock recover --from-icloud --name docs --spare /Volumes/SPARE restore --card /Volumes/NEW
 ```
 
-Full list: `xordock help`. Rules: [docs/usage.md](docs/usage.md), backup and recovery: [docs/recovery.md](docs/recovery.md), format: [docs/format-v1.md](docs/format-v1.md), threat model: [docs/threat-model.md](docs/threat-model.md).
+Full list: `./bin/xordock help`. Details: [docs/usage.md](docs/usage.md), [docs/recovery.md](docs/recovery.md), [docs/threat-model.md](docs/threat-model.md), [docs/format-v1.md](docs/format-v1.md).
 
-## Architecture
+## Project state (2026-11-22)
+
+**Prototype, not for production data.**
+
+- **Works:**
+  - folder in Finder (macFUSE 5.5, FSKit backend, no kext);
+  - XOR split of every block and of the index with file names;
+  - crash-safe A→B commit;
+  - snapshots, backup to a spare card, copy of A in iCloud Drive, recovery after losing any single medium;
+  - menu bar app with dashboard, tutorial and requirements check.
+- **Masks:** macOS CSPRNG. Practical protection, **not** information-theoretic, **no** resistance to P = NP.
+- **Known gaps:**
+  - physical-disk check for A/B (S006, draft);
+  - commit errors on `close` do not reach apps (R4-03);
+  - no integrity against deliberate share tampering;
+  - no `xattr`, symlinks or permissions;
+  - no nightly 1 GiB test or fuzzing yet (S004 CP-09).
+- **Performance:** about 10 MiB/s write with an SD card; limited by the card. A USB 2 stick is much slower.
+- **Tested on:** macOS 27.0, Apple Silicon (M1 Pro), Go 1.27.4, Xcode 27.2, macFUSE 5.5.0.
+
+### Architecture
 
 | Package | Role |
 | --- | --- |
-| `internal/split` | `A = M ⊕ R`, `B = R`; masks from `SecRandomCopyBytes` (cgo) |
-| `internal/vault` | share format v1, 1 MiB blocks, XOR-split index, A→B commit, crash recovery, GC with snapshot pins, snapshots, backup to a spare card, recovery, `fsck`, `flock` |
-| `internal/fusefs` | file system operations on top of the engine: write buffers in RAM, commit on close/fsync, unavailable state after card removal; no cryptography |
-| `internal/fusemount` | cgo bridge to libfuse3 from macFUSE (`backend=fskit`), card supervision, unmount |
-| `cmd/xordock` | CLI; `vaults`/`volumes`/`points` output JSON for the app |
-| `macos/` | SwiftUI app: `XordockCore` (model, CLI invocation, status rules), `XordockUI` (dashboard), `XordockApp` (menu bar, window, sheets), `XordockPreview` (renders the dashboard to PNG); no access to the shares |
+| `internal/split` | `A = M ⊕ R`, `B = R`; `MaskSource` interface, today `SecRandomCopyBytes` (cgo) |
+| `internal/vault` | share format v1, 1 MiB blocks, XOR-split index, A→B commit, crash recovery, GC with snapshot pins, snapshots, backup, share A copy, recovery, `fsck`, `flock` |
+| `internal/fusefs` | file system operations on top of the engine; RAM write buffers; no cryptography |
+| `internal/fusemount` | cgo bridge to libfuse3 (loaded with `dlopen`), card supervision, probe mount |
+| `cmd/xordock` | CLI, including `doctor` and JSON queries for the app |
+| `macos/` | SwiftUI app (`XordockCore`, `XordockUI`, `XordockApp`, `XordockPreview`); it never touches the shares, only runs the bundled CLI |
 
-Dependencies: Go standard library, cgo to Security.framework and libfuse3 (macFUSE).
-
-## Tests
+### Tests
 
 ```bash
 go test -race ./...
 (cd macos && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test)
 ```
 
-Tests for the S004 gates CG-01–CG-12 are in `internal/*/…_test.go` (mapping: S004 §9 "Gates and evidence"). E2E on the SD card and on disk images is described in the CHANGELOG. Engine measurements: `XORDOCK_PERF_A=<directory on SSD> XORDOCK_PERF_B=<directory on card> go test -run TestPerf -v ./internal/vault`.
+Gate tests live next to the code (`*_test.go`, `macos/Tests`). E2E runs on real cards and USB sticks are recorded in the [CHANGELOG](CHANGELOG.md). Security analyses after every round: [docs/security/](docs/security/).
 
-## How we work
+### How we work
 
-Methodology [Rondo + Context-Driven-Development](https://workwithrondo.com):
-
-| Artifact | Role |
-| --- | --- |
-| `specs/` | intent: goal, scope, rules and gates of every change |
-| `CHANGELOG.md` | what was actually delivered |
-| tests (`*_test.go`) | evidence for what the CHANGELOG describes |
-| `README.md` | the "here and now" state |
-| `MANIFEST.md` | the project's engineering principles |
-| `docs/security/` | security analyses after every round (latest: round S008) |
-
-## Specs
+[Rondo + Context-Driven-Development](https://workwithrondo.com): every change starts with a spec in `specs/` (9 sections, owner's decisions, control gates), ends with tests, a CHANGELOG entry and a security analysis. Engineering principles: [MANIFEST.md](MANIFEST.md).
 
 | No. | Title | Status |
 | --- | --- | --- |

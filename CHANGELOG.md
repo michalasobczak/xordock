@@ -4,6 +4,13 @@ A chronological record of what was actually delivered. Entries are ordered by da
 
 ## 2026-11-22
 
+### README rewritten as the project's front page
+
+- New README: what xordock is, why the one-time-pad construction differs from computational encryption, Shannon's perfect-secrecy proof for the 2-of-2 XOR split, and what the proof does not cover (length, integrity, open vault, copies).
+- Two protection levels stated explicitly: masks from the kernel API (`SecRandomCopyBytes`, today) give **practical** protection with no resistance to P = NP; masks read directly from a hardware generator (not through the kernel DRBG), with the other conditions met, would give information-theoretic protection. Conditions table with today's status.
+- What Macs offer: Apple Silicon keeps its hardware RNG behind the kernel DRBG and has no `FEAT_RNG` (checked on M1 Pro); Intel Macs have `RDSEED`; otherwise an external USB TRNG/QRNG. No claim of P = NP resistance for the current product (S004 CG-14, SC-07).
+- Loss scenarios (one and two media: cards, Mac, iCloud account) with confidentiality, availability and what to do; usage for the app and the CLI.
+
 ### S012: English version of the project
 
 - All user-facing texts are now English: the macOS app (dashboard, tutorial, requirements, sheets, menu), the CLI (usage, output, errors, logs, `doctor`, mask description) and the build script. No bilingual output.
