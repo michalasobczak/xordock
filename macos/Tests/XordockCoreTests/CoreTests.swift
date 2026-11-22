@@ -204,15 +204,55 @@ func sampleVault() throws -> VaultInfo {
     #expect(t.map(\.kind) == [.ssd, .card, .spare, .icloud])
     #expect(t.allSatisfy { $0.level == .ok })
     #expect(t[1].note == "xor_primary" && t[2].note == "xor_backup connected")
+    // Working card present, no backup yet: the spare tile warns.
+    var nb = v
+    nb.lastBackup = nil
+    nb.aCopy = nil
+    #expect(nb.tiles(icloud: true)[2].status == "no backup" && nb.tiles(icloud: true)[2].level == .warning)
     v.card = nil
     v.spares = []
     v.aCopy = nil
     v.lastBackup = nil
     t = v.tiles(icloud: true)
     #expect(t[1].status == "not connected" && t[1].level == .warning)
-    #expect(t[2].status == "no backup" && t[2].note == nil)
+    // S013 C-03: without the working card the backup state is unknown, not absent.
+    #expect(t[2].status == "unknown" && t[2].level == .neutral && t[2].note == "connect the working card")
     #expect(t[3].status == "no copy")
     #expect(v.tiles(icloud: false)[3].level == .neutral)
+}
+
+// S013 C-03: the share A copy date is shown without a backup-age warning when the card is missing.
+@Test func iCloudTileWithoutCard() throws {
+    var v = try sampleVault()
+    v.card = nil
+    v.lastBackup = nil
+    v.backupDue = true // the CLI cannot tell without the card
+    let t = v.tiles(icloud: true)
+    #expect(t[3].level == .ok && t[3].status != "no copy")
+    #expect(t[2].level == .neutral)
+}
+
+// S013 G1: one plain sentence instead of the raw mount log.
+@Test func mountFailureSummary() {
+    let log = """
+    2026/11/22 23:20:18 xordock: working card unavailable, volume locked and being unmounted
+    2026/11/22 23:20:18 xordock: vault b5cf in error state: working card removed: stat /Volumes/x/xordock/sejf/xordock.json: no such file or directory
+    volume unmounted in an emergency, uncommitted changes were lost: working card removed
+    """
+    let s = MountFailure.summary(vault: "sejf", log: log)
+    #expect(s.hasPrefix("The working card was removed while vault \"sejf\" was open"))
+    #expect(s.count <= 200 && !s.contains("2026/") && !s.contains("b5cf"))
+    let other = MountFailure.summary(vault: "sejf", log: "libfuse rejected the mount options")
+    #expect(other == "Vault \"sejf\" was unmounted because of an error.")
+    #expect(MountFailure.summary(vault: "sejf", log: "").contains("sejf"))
+}
+
+// The log tail covers only the latest mount session.
+@Test func logTailLatestSession() throws {
+    let f = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".log")
+    defer { try? FileManager.default.removeItem(at: f) }
+    try "--- t1 mount\nold error\n--- t2 mount\nfuse: forking a threaded process is unsafe\nnew line\n".write(to: f, atomically: true, encoding: .utf8)
+    #expect(CLI.logTail(f, lines: 8) == "new line")
 }
 
 @Test func healthTextsAreShort() throws {

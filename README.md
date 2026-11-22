@@ -123,17 +123,63 @@ So: **never carry the cards together, never keep a card in the Mac when the vaul
    ```
 3. At launch the app checks the requirements (macOS, macFUSE, the extension via a one-second probe mount, FileVault, iCloud Drive) and shows what to fix. It then offers a **tutorial**: six short screens explaining the idea, then a guided walkthrough on your real vault. You can turn the prompt off in Settings (⌘,).
 
-![Vault dashboard](docs/ui/1-ok-light.png)
+### Tutorial: your first vault, step by step
 
-### Everyday work
+The screenshots below come from a real run: a vault called `sejf`, two USB sticks named `xor_primary` (working card) and `xor_backup` (spare card), macOS 27 on an M1 Pro.
 
-1. **New vault…**: give it a name and pick the working card from the list.
-2. **Open vault**: the vault appears in Finder as a normal disk. Work with your files as usual.
-3. **Unmount** before you pull the card out. Pulling it out while mounted locks the volume within about a second, and uncommitted changes are lost.
-4. **Back up now** (weekly; the padlock in the menu bar turns into a warning when it is due): with both cards connected, the app takes a snapshot, copies B to the spare card and A to iCloud Drive, verifies both and records a READY recovery point.
-5. **Recovery… → Verify** from time to time, to check that the backup really restores.
+**1. The introduction.** On first launch the app explains the idea in six screens. Click **Next** through them, or **Skip introduction**.
 
-The dashboard always shows one status with one recommended action, plus four tiles: This Mac (A), working card (B), spare card (copy of B) and iCloud Drive (copy of A).
+| | |
+|:---:|:---:|
+| <img src="docs/tutorial/01-intro-problem.webp" width="400" alt="Problem: everything in one place"> | <img src="docs/tutorial/02-intro-idea.webp" width="400" alt="Idea: two halves"> |
+| Problem: everything in one place | Idea: two halves |
+| <img src="docs/tutorial/03-intro-mac-and-card.webp" width="400" alt="Mac holds A, card holds B"> | <img src="docs/tutorial/04-intro-copies.webp" width="400" alt="Copies: spare card and iCloud"> |
+| Mac holds A, card holds B | Copies: spare card and iCloud |
+| <img src="docs/tutorial/05-intro-rules.webp" width="400" alt="Five rules"> | <img src="docs/tutorial/06-intro-limits.webp" width="400" alt="Honestly: the limits of protection"> |
+| Five rules | Honestly: the limits of protection |
+
+The last screen, **Tour the app**, starts the guided walkthrough. From then on a tutorial bar at the bottom of the window shows the current step, with **Show tip**, **Back**, **Next** and **End**.
+
+**2. Create the vault.** Plug in the working card, click **New vault…**, type a name and pick the card from the list. The sheet states plainly what you get: share A on this Mac, share B on the card, practical protection, and no access to the data without the working card.
+
+<img src="docs/tutorial/07-new-vault.webp" width="720" alt="New vault sheet">
+
+On the card, xordock writes only one folder, `xordock/<vault name>`. Everything inside it is share B, which is random noise without share A:
+
+<img src="docs/tutorial/08-card-contents.png" width="720" alt="The xor_primary stick with the xordock/sejf folder">
+
+**3. Open the vault and use it.** Click **Open vault**. The vault appears in Finder as a disk named `xordock-<vault name>`. Save, edit, rename and delete files as usual; every write is split into A (Mac) and B (card) immediately.
+
+<img src="docs/tutorial/09-vault-in-finder.png" width="720" alt="The xordock-sejf volume in Finder with a file">
+
+What is where while the vault is open: the card (`xor_primary`) holds only `xordock/sejf` with `obj/`, `super` and `xordock.json`, which is share B, unreadable on its own. Your file `test.md` is visible only through the mounted volume `xordock-sejf`, which xordock assembles on the fly from A and B. Eject the volume and `test.md` is gone from view; nothing readable is left on the card or on the Mac.
+
+<img src="docs/tutorial/09b-card-and-open-vault.png" width="720" alt="Finder: the xor_primary card with xordock/sejf next to the mounted xordock-sejf volume showing test.md">
+
+**4. Back up.** Connect the spare card as well and click **Back up now** (or **Backup…**). The spare card is preselected once it has been used. If the vault is open, the app unmounts it first, so save and close your files. Then it takes a snapshot, copies B to the spare card and A to iCloud Drive, and verifies both.
+
+<img src="docs/tutorial/10-backup.webp" width="720" alt="Back up vault sheet with the spare card selected">
+
+**5. All good.** The dashboard turns green when everything is in place. The four tiles show where each half is: share A on this Mac, share B on the working card, the copy of B on the spare card and the copy of A in iCloud Drive, each with the time of the last backup.
+
+<img src="docs/tutorial/11-all-good.webp" width="720" alt="Dashboard: All good, four green tiles">
+
+In iCloud Drive you will find `xordock/<vault name>` with the copy of share A. It is useless without a card, and it is what lets you recover after losing the Mac.
+
+<img src="docs/tutorial/12-icloud-copy.webp" width="720" alt="iCloud Drive with the xordock/sejf folder">
+
+**6. What happens if you pull the card out while the vault is open.** Within about a second xordock notices that the working card is gone, locks the volume (every operation returns an I/O error, plaintext buffers are wiped) and unmounts it. The app reports an emergency unmount: changes that were not yet saved are lost, while everything committed before stays intact. Put the card back and open the vault again.
+
+<img src="docs/tutorial/13-card-pulled-out.webp" width="720" alt="The app after the card was pulled out: emergency unmount reported, working card not connected">
+
+*This screenshot predates S013: the app now shows a single sentence ("The working card was removed while vault "sejf" was open…") with the log under Details, clears the "opened in Finder" banner, and shows the spare card as "unknown" instead of "no backup" while the working card is missing.*
+
+**7. Afterwards.**
+
+- **Unmount** before you pull the card out. Pulling it out while mounted locks the volume within about a second, and uncommitted changes are lost.
+- **Back up weekly.** The padlock in the menu bar turns into a warning when a backup is due.
+- **Recovery… → Verify** from time to time, to check that the backup really restores.
+- Keep the two cards in different places. Never put a card's contents in iCloud or on the Time Machine disk.
 
 ### From the terminal
 
@@ -208,6 +254,7 @@ Gate tests live next to the code (`*_test.go`, `macos/Tests`). E2E runs on real 
 | [S010](specs/S010-samouczek.md) | Tutorial: introduction and guidance through actions | delivered; walkthrough pending owner review |
 | [S011](specs/S011-sprawdzanie-wymagan.md) | Requirements check at launch | delivered |
 | [S012](specs/S012-wersja-angielska.md) | English version of the project | delivered |
+| [S013](specs/S013-stan-po-utracie-karty.md) | Clear state after the working card is removed | delivered |
 
 ## License
 

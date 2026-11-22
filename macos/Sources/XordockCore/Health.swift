@@ -58,6 +58,22 @@ public struct VaultHealth: Equatable, Sendable {
     }
 }
 
+/// Summary of a mount process that ended with an error (S013 C-01). The raw
+/// log stays available under "Details"; the banner gets one plain sentence.
+public enum MountFailure {
+    public static func isCardRemoval(_ log: String) -> Bool {
+        let l = log.lowercased()
+        return l.contains("working card removed") || l.contains("working card unavailable")
+    }
+
+    public static func summary(vault: String, log: String) -> String {
+        if isCardRemoval(log) {
+            return "The working card was removed while vault \"\(vault)\" was open. The vault was locked and unmounted; unsaved changes were lost. Put the card back and open the vault again."
+        }
+        return "Vault \"\(vault)\" was unmounted because of an error."
+    }
+}
+
 public struct Tile: Equatable, Identifiable, Sendable {
     public enum Kind: String, Sendable { case ssd, card, spare, icloud }
     public var kind: Kind
@@ -95,7 +111,14 @@ public extension VaultInfo {
                         status: mounted ? "vault open" : "connected", note: (vol as NSString).lastPathComponent)
         }()
         let spareNote = spares.first.map { "\(($0.volume as NSString).lastPathComponent) connected" }
+        // Without the working card the index cannot be read, so the backup
+        // state is unknown, not absent (S013 C-03).
+        let noCard = card == nil
         let spare: Tile = {
+            if noCard {
+                return Tile(kind: .spare, title: "Spare card", role: "copy of B", level: .neutral, status: "unknown",
+                            note: spareNote ?? "connect the working card")
+            }
             guard let b = lastBackup else {
                 return Tile(kind: .spare, title: "Spare card", role: "copy of B", level: .warning, status: "no backup", note: spareNote)
             }
@@ -109,7 +132,7 @@ public extension VaultInfo {
             guard let c = aCopy, c.points > 0 else {
                 return Tile(kind: .icloud, title: "iCloud Drive", role: "copy of A", level: .warning, status: "no copy", note: nil)
             }
-            return Tile(kind: .icloud, title: "iCloud Drive", role: "copy of A", level: backupDue ? .warning : .ok,
+            return Tile(kind: .icloud, title: "iCloud Drive", role: "copy of A", level: (backupDue && !noCard) ? .warning : .ok,
                         status: c.lastPoint.map(shortDate) ?? "present", note: nil)
         }()
         return [ssd, cardTile, spare, cloud]

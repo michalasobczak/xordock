@@ -4,6 +4,17 @@ A chronological record of what was actually delivered. Entries are ordered by da
 
 ## 2026-11-22
 
+### S013: clear state after the working card is removed
+
+- Pulling the card out of an open vault now produces one sentence ("The working card was removed while vault "X" was open. The vault was locked and unmounted; unsaved changes were lost…") with the mount log under Details, instead of the raw log; the stale "opened in Finder" banner is cleared.
+- Without the working card the spare card tile shows "unknown" instead of a false "no backup", and the iCloud tile shows the share A copy date without a warning.
+- Swift tests: 4 new or updated, 22 in total.
+
+### README: step-by-step tutorial with real screenshots
+
+- New README section "Tutorial: your first vault, step by step": the six intro screens, creating a vault, the card contents, the vault in Finder, the card next to the open vault, backup, the green dashboard, the share A copy in iCloud Drive and what happens when the card is pulled out while the vault is open, from a real run on two USB sticks.
+- Screenshots in `docs/tutorial/` (owner's screenshots; the Finder sidebar with the home folder name and the computer name cropped out before publishing).
+
 ### License: AGPL-3.0
 
 - `LICENSE` with the official text of the GNU Affero General Public License v3 (owner's choice); README section "License": AGPL-3.0 or later, copyright Michal Sobczak, macFUSE not bundled and loaded at runtime under its own license.

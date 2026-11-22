@@ -104,7 +104,10 @@ public struct CLI: Sendable {
     /// Last lines of the mount log (error message after a failed mount).
     public static func logTail(_ url: URL, lines: Int = 4) -> String {
         guard let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
-        let ls = s.split(separator: "\n").map(String.init).filter { !$0.hasPrefix("fuse: forking") && !$0.hasPrefix("---") }
+        // Only the latest mount session: lines after the last "--- <time> mount" marker.
+        var ls = s.split(separator: "\n").map(String.init)
+        if let i = ls.lastIndex(where: { $0.hasPrefix("---") }) { ls = Array(ls[(i + 1)...]) }
+        ls = ls.filter { !$0.hasPrefix("fuse: forking") }
         return cleanStderr(ls.suffix(lines).joined(separator: "\n"))
     }
 }

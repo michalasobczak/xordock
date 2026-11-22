@@ -18,6 +18,7 @@ final class AppModel {
     var message: String?       // result of the last action: one sentence
     var output: String?        // full CLI output of the last action (under "Details")
     var errorText: String?     // last error
+    var errorDetails: String?   // raw log behind the error banner (S013)
     var cliMissing = false
 
     let cli: CLI?
@@ -118,6 +119,7 @@ final class AppModel {
         guard let cli, busy == nil else { return false }
         busy = title
         errorText = nil
+        errorDetails = nil
         message = nil
         output = nil
         defer { busy = nil }
@@ -145,6 +147,7 @@ final class AppModel {
         guard let cli, busy == nil else { return }
         busy = "Mounting…"
         errorText = nil
+        errorDetails = nil
         message = nil
         let log = CLI.logURL(name: v.name)
         let name = v.name
@@ -152,9 +155,13 @@ final class AppModel {
             try cli.spawnMount(name: name, log: log) { [weak self] status in
                 Task { @MainActor in
                     guard let self else { return }
+                    // The volume is gone: the "opened in Finder" banner is stale (S013 C-02).
+                    self.message = nil
+                    self.output = nil
                     if status != 0 {
-                        let tail = CLI.logTail(log)
-                        self.errorText = "Vault \"\(name)\" unmounted with an error: \(tail.isEmpty ? "code \(status)" : tail)"
+                        let tail = CLI.logTail(log, lines: 8)
+                        self.errorText = MountFailure.summary(vault: name, log: tail)
+                        self.errorDetails = tail.isEmpty ? "exit code \(status)" : tail
                     }
                     await self.refresh()
                 }

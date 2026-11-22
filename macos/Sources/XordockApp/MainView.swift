@@ -161,7 +161,10 @@ struct MainView: View {
             HStack { ProgressView().controlSize(.small); Text(b) }.padding(8)
         }
         if let e = model.errorText {
-            Banner(text: e, style: .error) { model.errorText = nil }
+            Banner(text: e, style: .error, details: model.errorDetails) {
+                model.errorText = nil
+                model.errorDetails = nil
+            }
         }
         if let m = model.message, !m.isEmpty {
             Banner(text: m, style: .info, details: model.output) { model.message = nil; model.output = nil }
