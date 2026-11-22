@@ -37,7 +37,7 @@ func Mount(v *vault.Vault, mountpoint, volname string, onMounted func()) error {
 				return
 			case <-time.After(100 * time.Millisecond):
 			}
-			if isMounted(mountpoint) {
+			if IsMounted(mountpoint) {
 				mounted.Store(true)
 				onMounted()
 			}
@@ -60,15 +60,15 @@ func Mount(v *vault.Vault, mountpoint, volname string, onMounted func()) error {
 	}()
 	opts := fmt.Sprintf("backend=fskit,volname=%s,fsname=xordock", volname)
 	err := run(fs, mountpoint, opts)
-	if err == nil && !mounted.Load() && !isMounted(mountpoint) {
+	if err == nil && !mounted.Load() && !IsMounted(mountpoint) {
 		// libfuse potrafi zakończyć pętlę z kodem 0, gdy montowanie się nie udało.
 		return errMount
 	}
 	return err
 }
 
-// isMounted: punkt montowania leży na innym urządzeniu niż jego katalog nadrzędny.
-func isMounted(mp string) bool {
+// IsMounted: punkt montowania leży na innym urządzeniu niż jego katalog nadrzędny.
+func IsMounted(mp string) bool {
 	var a, b syscall.Stat_t
 	if syscall.Stat(mp, &a) != nil || syscall.Stat(filepath.Dir(mp), &b) != nil {
 		return false

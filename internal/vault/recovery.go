@@ -22,8 +22,12 @@ type Recovery struct {
 	id           ID
 	Media        string
 	lock         *os.File
+	aCopy, bCopy bool // strona jest kopią (rola backup) z rekordami punktów
 }
 
+// OpenRecovery otwiera odzyskiwanie z udziału A (żywego albo kopii z iCloud,
+// S008) i udziału B (karty zapasowej albo roboczej). Co najmniej jedna strona
+// musi być kopią z rekordami punktów. Kopie nie są blokowane ani zmieniane.
 func OpenRecovery(aRoot, spare string) (*Recovery, error) {
 	hA, err := readHeader(aRoot, SideA)
 	if err != nil {
@@ -33,7 +37,7 @@ func OpenRecovery(aRoot, spare string) (*Recovery, error) {
 	if err != nil {
 		return nil, fmt.Errorf("karta zapasowa: %w", err)
 	}
-	if hS.Role != roleBackup {
+	if hS.Role != roleBackup && hA.Role != roleBackup {
 		return nil, errors.New("to karta robocza, nie zapasowa; odzyskiwanie nie jest potrzebne")
 	}
 	if hA.Vault != hS.Vault {
@@ -43,9 +47,11 @@ func OpenRecovery(aRoot, spare string) (*Recovery, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Recovery{aRoot: aRoot, spare: spare, id: id, Media: hS.Media}
-	if r.lock, err = lockRoot(aRoot); err != nil {
-		return nil, err
+	r := &Recovery{aRoot: aRoot, spare: spare, id: id, Media: hS.Media, aCopy: hA.Role == roleBackup, bCopy: hS.Role == roleBackup}
+	if !r.aCopy {
+		if r.lock, err = lockRoot(aRoot); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
@@ -58,7 +64,31 @@ func (r *Recovery) Close() {
 }
 
 // Points zwraca punkty READY (najnowszy pierwszy) i opisy odrzuconych.
-func (r *Recovery) Points() ([]Point, []string) { return ReadPoints(r.spare, r.id) }
+// Gdy obie strony są kopiami, tylko punkty obecne na obu.
+func (r *Recovery) Points() ([]Point, []string) {
+	switch {
+	case r.aCopy && r.bCopy:
+		pb, bad := ReadPoints(r.spare, r.id)
+		pa, badA := ReadPoints(r.aRoot, r.id)
+		inA := map[string]bool{}
+		for _, p := range pa {
+			inA[p.ID] = true
+		}
+		var both []Point
+		for _, p := range pb {
+			if inA[p.ID] {
+				both = append(both, p)
+			} else {
+				bad = append(bad, fmt.Sprintf("punkt %s: brak kopii udziału A", p.ID))
+			}
+		}
+		return both, append(bad, badA...)
+	case r.bCopy:
+		return ReadPoints(r.spare, r.id)
+	default:
+		return ReadPoints(r.aRoot, r.id)
+	}
+}
 
 func (r *Recovery) point(id string) (Point, error) {
 	points, _ := r.Points()

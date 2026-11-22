@@ -9,6 +9,8 @@ import (
 	"xordock/internal/vault"
 )
 
+type Point = vault.Point
+
 // Polecenia migawek, backupu, odzyskiwania i stanu (S004 §5.4–5.6, G-08).
 
 func cmdStatus(args []string) error {
@@ -40,6 +42,11 @@ func cmdStatus(args []string) error {
 	}
 	defer v.Close()
 	fmt.Printf("  commit %d, migawek: %d\n  Maski: %s\n", v.Seq(), len(v.Snapshots()), v.MaskKind())
+	if jc, ok := readCopy(aCopyDir(c.name)); ok && jc.ID == id.String() && jc.LastPoint != "" {
+		fmt.Printf("  Kopia udziału A w iCloud: %s, ostatni punkt %s\n", jc.Path, jc.LastPoint)
+	} else {
+		fmt.Println("  Kopia udziału A w iCloud: BRAK. Utrata SSD = utrata danych.")
+	}
 	ref, snap, ok := v.LastBackup()
 	if !ok {
 		fmt.Println("  Backup: BRAK potwierdzonego punktu odzyskiwania. Utrata karty roboczej = utrata danych.")
@@ -109,6 +116,7 @@ func cmdBackup(args []string) error {
 	c.bind(fl)
 	spareVol := fl.String("spare", "", "wolumen karty zapasowej, np. /Volumes/zapas")
 	sid := fl.String("snapshot", "", "migawka (domyślnie najnowsza)")
+	noICloud := fl.Bool("no-icloud", false, "nie kopiuj udziału A do iCloud Drive (S008)")
 	fl.Parse(args)
 	spare, err := spareRoot(*spareVol, c.name)
 	if err != nil {
@@ -121,19 +129,44 @@ func cmdBackup(args []string) error {
 	defer v.Close()
 	switch sub {
 	case "":
-		p, err := v.Backup(spare, *sid)
+		aCopy, useICloud := aCopyDir(c.name), !*noICloud && iCloudAvailable()
+		var p, pa Point
+		if useICloud {
+			fmt.Println(adpWarning)
+			p, pa, err = v.BackupPair(spare, aCopy, *sid)
+		} else {
+			p, err = v.Backup(spare, *sid)
+		}
+		if p.ID != "" {
+			fmt.Printf("Punkt odzyskiwania READY: %s\n  migawka %s (commit %d), %d obiektów, %d B\n  utworzony %s\n  udziały B: %s\n",
+				p.ID, p.Snapshot, p.Seq, p.Objects, p.Bytes, p.Created.Local().Format("2006-01-02 15:04"), spare)
+		}
+		if pa.ID != "" {
+			fmt.Printf("  udziały A: %s (iCloud Drive)\n", aCopy)
+		}
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Punkt odzyskiwania READY: %s\n  migawka %s (commit %d), %d obiektów, %d B\n  utworzony %s\n",
-			p.ID, p.Snapshot, p.Seq, p.Objects, p.Bytes, p.Created.Local().Format("2006-01-02 15:04"))
-		fmt.Println("UWAGA: zmiany wykonane po tej migawce NIE znajdują się na karcie zapasowej (B-05).")
+		switch {
+		case *noICloud:
+			fmt.Println("UWAGA: kopia udziału A pominięta (--no-icloud). Utrata SSD = utrata danych, o ile nie masz innej kopii A.")
+		case !useICloud:
+			fmt.Println("UWAGA: iCloud Drive niedostępny, kopia udziału A NIE powstała. Utrata SSD = utrata danych.")
+		}
+		fmt.Println("UWAGA: zmiany wykonane po tej migawce NIE znajdują się w kopiach (B-05).")
 	case "prune":
 		np, no, err := v.PruneBackup(spare)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Usunięto %d starszych punktów i %d udziałów z karty zapasowej; najnowszy punkt zostaje.\n", np, no)
+		fmt.Printf("Karta zapasowa: usunięto %d starszych punktów i %d udziałów; najnowszy punkt zostaje.\n", np, no)
+		if aCopy := aCopyDir(c.name); exists(aCopy) {
+			np, no, err := v.PruneACopy(aCopy)
+			if err != nil {
+				return fmt.Errorf("kopia A w iCloud: %w", err)
+			}
+			fmt.Printf("Kopia A w iCloud: usunięto %d starszych punktów i %d udziałów; najnowszy punkt zostaje.\n", np, no)
+		}
 	default:
 		return fmt.Errorf("nieznane polecenie backup %q", sub)
 	}
@@ -150,6 +183,7 @@ func cmdRecover(args []string) error {
 	card := fl.String("card", "", "restore: wolumen nowej karty roboczej")
 	newName := fl.String("new-name", "", "restore: nazwa nowego sejfu (domyślnie <name>-odzyskany)")
 	newA := fl.String("new-a", "", "restore: katalog nowego udziału A")
+	fromICloud := fl.Bool("from-icloud", false, "udział A z kopii w iCloud Drive (po utracie SSD, S008)")
 	fl.Parse(args)
 	sub, rest := subcommand(fl.Args())
 	if len(rest) > 0 {
@@ -159,7 +193,11 @@ func cmdRecover(args []string) error {
 	if err != nil {
 		return err
 	}
-	r, err := vault.OpenRecovery(c.aRoot(), spare)
+	aSrc := c.aRoot()
+	if *fromICloud {
+		aSrc = aCopyDir(c.name)
+	}
+	r, err := vault.OpenRecovery(aSrc, spare)
 	if err != nil {
 		return err
 	}
@@ -203,6 +241,9 @@ func cmdRecover(args []string) error {
 		name := *newName
 		if name == "" {
 			name = c.name + "-odzyskany"
+		}
+		if err := validName(name); err != nil {
+			return err
 		}
 		w, p, err := r.View(*point)
 		if err != nil {

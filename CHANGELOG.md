@@ -4,6 +4,50 @@ Chronologiczny zapis tego, co faktycznie dostarczono. Wpisy są uporządkowane w
 
 ## 2026-11-22
 
+### S008: kopia udziału A w iCloud Drive
+
+- Backup zapisuje jeden punkt odzyskiwania w dwóch miejscach: udziały B migawki na kartę zapasową i udziały A tej samej migawki do `iCloud Drive/xordock/<nazwa>`. Utrata SSD przestaje oznaczać utratę danych.
+- Silnik:
+  - `BackupPair`, uogólnione kopiowanie strony (`copySide`), `PruneACopy`;
+  - `OpenRecovery` z kopii A, z kartą zapasową albo roboczą;
+  - `ReadCopyID`;
+  - cel kopii A nie może leżeć w katalogu udziału ani na karcie.
+- CLI:
+  - `backup` robi kopię A domyślnie (`--no-icloud` ją pomija), `backup prune` przycina oba cele;
+  - `recover --from-icloud`, `points --from-icloud`;
+  - `status` i `vaults` pokazują kopię A, a `orphanCopies` wylicza kopie bez udziału A na Macu.
+- Aplikacja:
+  - jednorazowe ostrzeżenie o koncie iCloud (2FA, Advanced Data Protection);
+  - stan kopii A i ostrzeżenie, gdy jej brak;
+  - odzyskiwanie z iCloud bez SSD.
+- Testy:
+  - Go: 6 nowych (utrata SSD, brak B i jawnej treści w kopii, odmowa miejsc na karcie, przerwanie na 3 etapach, retencja obu kopii, stan CLI);
+  - Swift: 1 nowy, razem 10.
+- E2E: pendrive'y USB + prawdziwy iCloud Drive. Plik odzyskany bajt w bajt po usunięciu katalogu A, zarówno z kartą zapasową, jak i z roboczą. Sejf testowy usunięty.
+- Analiza: `docs/bezpieczenstwo/2026-11-22-runda-S008.md`. R8-01 (modelowe): kopia A w iCloud + dowolna karta B = komplet, więc po zgubieniu karty usuwa się wszystkie kopie starego A.
+- `docs/recovery.md`: tabela „co utracone → skąd odzyskujesz”, procedura po utracie SSD, ostrzeżenie przed eksportem do Biurka i Dokumentów synchronizowanych z iCloud.
+
+### S007: aplikacja macOS (pasek menu + okno)
+
+- `macos/`: aplikacja SwiftUI z ikoną w pasku menu i oknem:
+  - lista sejfów ze stanem kart, montowania i backupu;
+  - kreator nowego sejfu z wyborem nośnika z listy;
+  - montowanie i odmontowanie, „Pokaż w Finderze”;
+  - „Backup teraz” (odmontowanie za zgodą, migawka, backup na wybraną kartę zapasową);
+  - odzyskiwanie: lista punktów, weryfikacja, jawny eksport, odtworzenie na nową kartę;
+  - `fsck` i log montowania.
+- Silnik zostaje jeden: aplikacja uruchamia dołączony CLI przez `Process` z tablicą argumentów, bez powłoki. Proces montowania loguje do `~/Library/Logs/xordock/<nazwa>.log` i przeżywa zamknięcie aplikacji.
+- CLI: polecenia `vaults`, `volumes` i `points` z wynikiem JSON. `vault.Peek` odczytuje stan także zamontowanego sejfu, bez blokady i bez zmian w udziałach.
+- `scripts/build-app.sh`: składa `build/xordock.app` z CLI w `Contents/Resources`, podpis ad hoc.
+- Bezpieczeństwo:
+  - walidacja nazwy sejfu w CLI i UI (R7-01): wcześniej `--name ../x` wyprowadzało ścieżki A, B i punktu montowania poza ich katalogi;
+  - aplikacja w pakiecie nie przyjmuje podmiany CLI przez `XORDOCK_CLI` (R7-03).
+- Testy:
+  - Go: `TestPeekWhileOpen`, `TestCollectVaults`, `TestWholeDisk`, `TestValidName`;
+  - Swift: 9 testów, w tym kontrakt JSON, reguła 7 dni, argumenty poleceń, zakaz powłoki i dostępu do udziałów w kodzie UI, prawdziwe CLI.
+- S006 (A i B na różnych fizycznych nośnikach) zapisana jako szkic z decyzjami właściciela. Luka potwierdzona: obraz `.dmg` na SSD przechodził jako karta.
+- Analiza: `docs/bezpieczenstwo/2026-11-22-runda-S007.md`.
+
 ### S005: poprawki z analizy bezpieczeństwa rundy S004
 
 - `backup prune` sprawdza oba udziały każdego obiektu najnowszego punktu, zanim usunie cokolwiek starszego (R4-01). Test `TestPruneRefusesIncompleteNewest`.

@@ -1,6 +1,6 @@
 # S004 — XorDock: bezpieczny katalog macOS z dwoma udziałami i odzyskiwaniem
 
-- **Status:** dostarczona dla CP-01–CP-07 (prototyp CLI + montowanie w Finderze). Otwarte: CP-08 (interfejs SwiftUI) i część CP-09 (fuzz, test nocny 1 GiB, pomiar 1 GiB). Szczegóły w §9 „Realizacja”.
+- **Status:** dostarczona dla CP-01–CP-08 (CP-08: aplikacja SwiftUI w S007). Otwarta część CP-09 (fuzz, test nocny 1 GiB, pomiar 1 GiB). Szczegóły w §9 „Realizacja”.
 - **Data:** 2026-11-22
 - **Powiązane:** zastępuje S001 (silnik przejęty) i S002 (porzucona); S005 (poprawki z analizy bezpieczeństwa tej rundy); S003 (szkic)
 - **Źródło:** specyfikacja właściciela wpisana jako `specs/S004.md` (tytuł roboczy SPEC-001). Numer i nazwa pliku według konwencji repozytorium. Tekst właściciela poniżej bez zmian; decyzje wykonawcze dopisane w §9.

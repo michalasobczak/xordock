@@ -235,6 +235,20 @@ func ReadVaultID(aRoot string) (ID, string, error) {
 	return id, h.Name, err
 }
 
+// ReadCopyID zwraca identyfikator i nazwę sejfu z nagłówka kopii udziału A
+// (rola backup, S008). Żywy udział A jest odrzucany.
+func ReadCopyID(dir string) (ID, string, error) {
+	h, err := readHeader(dir, SideA)
+	if err != nil {
+		return ID{}, "", err
+	}
+	if h.Role != roleBackup {
+		return ID{}, "", errors.New("to żywy udział A, nie kopia")
+	}
+	id, err := ParseID(h.Vault)
+	return id, h.Name, err
+}
+
 // Open otwiera sejf, uzgadnia superbloki po ewentualnej awarii i sprząta
 // osierocone obiekty.
 func Open(aRoot, bRoot string, opt Options) (*Vault, error) {
