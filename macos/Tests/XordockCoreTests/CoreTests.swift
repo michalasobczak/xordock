@@ -161,3 +161,68 @@ let volumesJSON = """
     #expect(Commands.verify(name: "t", spare: "/Volumes/S", point: nil, fromICloud: true)
         == ["recover", "--name", "t", "--spare", "/Volumes/S", "--from-icloud", "verify"])
 }
+
+// S009 G1–G3: reguły pulpitu, kafelki, zwięzłość tekstów.
+func sampleVault() throws -> VaultInfo {
+    try jsonDecoder.decode(AppState.self, from: Data(vaultsJSON.utf8)).vaults[0]
+}
+
+@Test func healthPriorities() throws {
+    var v = try sampleVault()
+    v.mounted = false
+    #expect(VaultHealth.evaluate(v, icloud: true).title == "Wszystko w porządku")
+    #expect(VaultHealth.evaluate(v, icloud: true).detail == "3 zmiany od ostatniego backupu.")
+    v.mounted = true
+    #expect(VaultHealth.evaluate(v, icloud: true).action == .showInFinder)
+    v.aCopy = nil
+    #expect(VaultHealth.evaluate(v, icloud: true).title == "Brak kopii A w iCloud")
+    #expect(VaultHealth.evaluate(v, icloud: false).title == "Sejf otwarty") // bez iCloud nie wymagamy kopii A
+    v.backupDue = true
+    #expect(VaultHealth.evaluate(v, icloud: true).title == "Backup starszy niż tydzień")
+    v.lastBackup = nil
+    #expect(VaultHealth.evaluate(v, icloud: true).title == "Brak backupu")
+    #expect(VaultHealth.evaluate(v, icloud: true).action == .backup)
+    v.card = nil
+    #expect(VaultHealth.evaluate(v, icloud: true).title == "Podłącz kartę roboczą")
+    v.error = "udział A: uszkodzony"
+    #expect(VaultHealth.evaluate(v, icloud: true).level == .error)
+}
+
+@Test func tilesStates() throws {
+    var v = try sampleVault()
+    var t = v.tiles(icloud: true)
+    #expect(t.map(\.kind) == [.ssd, .card, .spare, .icloud])
+    #expect(t.allSatisfy { $0.level == .ok })
+    #expect(t[1].note == "xor_primary" && t[2].note == "xor_backup podłączona")
+    v.card = nil
+    v.spares = []
+    v.aCopy = nil
+    v.lastBackup = nil
+    t = v.tiles(icloud: true)
+    #expect(t[1].status == "niepodłączona" && t[1].level == .warning)
+    #expect(t[2].status == "brak backupu" && t[2].note == nil)
+    #expect(t[3].status == "brak kopii")
+    #expect(v.tiles(icloud: false)[3].level == .neutral)
+}
+
+@Test func healthTextsAreShort() throws {
+    var v = try sampleVault()
+    var all: [VaultHealth] = []
+    for step in 0..<7 {
+        switch step {
+        case 1: v.mounted = false
+        case 2: v.aCopy = nil
+        case 3: v.backupDue = true
+        case 4: v.lastBackup = nil
+        case 5: v.card = nil
+        case 6: v.error = String(repeating: "błąd ", count: 60)
+        default: break
+        }
+        all.append(VaultHealth.evaluate(v, icloud: true))
+    }
+    #expect(Set(all.map(\.title)).count == 7)
+    for h in all {
+        #expect(h.title.split(separator: " ").count <= 5, "\(h.title)")
+        #expect(h.detail.count <= 120, "\(h.detail)")
+    }
+}

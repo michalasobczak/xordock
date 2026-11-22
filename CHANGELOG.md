@@ -4,6 +4,16 @@ Chronologiczny zapis tego, co faktycznie dostarczono. Wpisy są uporządkowane w
 
 ## 2026-11-22
 
+### S009: przejrzysty pulpit sejfu w aplikacji
+
+- Widok sejfu to pulpit zamiast formularza:
+  - jeden status z jednym zaleceniem: „Wszystko w porządku / Otwórz sejf”, „Brak kopii A w iCloud / Zrób backup”, „Podłącz kartę roboczą”…;
+  - cztery kafelki nośników (Ten Mac/A, karta robocza/B, karta zapasowa/kopia B, iCloud/kopia A) z ✓/⚠︎ i datą;
+  - rząd akcji drugorzędnych; szczegóły techniczne zwinięte.
+- Kropki stanu na liście sejfów, krótkie komunikaty po akcjach (pełne wyjście pod „Szczegóły”), polskie daty.
+- Reguły w `XordockCore/Health.swift` (7 stanów z priorytetami), widok w nowej bibliotece `XordockUI`, narzędzie `XordockPreview` renderujące pulpit do PNG (przykłady w `docs/ui/`).
+- Testy Swift: 3 nowe (priorytety statusów, kafelki, długość tekstów), razem 13.
+
 ### S008: kopia udziału A w iCloud Drive
 
 - Backup zapisuje jeden punkt odzyskiwania w dwóch miejscach: udziały B migawki na kartę zapasową i udziały A tej samej migawki do `iCloud Drive/xordock/<nazwa>`. Utrata SSD przestaje oznaczać utratę danych.

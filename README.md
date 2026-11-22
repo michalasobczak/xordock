@@ -27,6 +27,8 @@
 open build/xordock.app
 ```
 
+![Pulpit sejfu](docs/ui/1-ok-jasny.png)
+
 Ikona kłódki pojawi się w pasku menu, a „Otwórz xordock…” otwiera okno. Pliki A należą do Ciebie, więc nic nie uruchamiaj przez `sudo`.
 
 ### CLI
@@ -54,7 +56,7 @@ Pełna lista: `xordock help`. Zasady: [docs/uzytkowanie.md](docs/uzytkowanie.md)
 | `internal/fusefs` | operacje systemu plików na silniku: bufory zapisu w RAM, commit przy zamknięciu/fsync, stan niedostępny po wyjęciu karty; bez kryptografii |
 | `internal/fusemount` | most cgo do libfuse3 z macFUSE (`backend=fskit`), nadzór karty, odmontowanie |
 | `cmd/xordock` | CLI; `vaults`/`volumes`/`points` dają JSON dla aplikacji |
-| `macos/` | aplikacja SwiftUI (`XordockCore`: model, uruchamianie CLI, reguły; `XordockApp`: widoki), bez dostępu do udziałów |
+| `macos/` | aplikacja SwiftUI: `XordockCore` (model, uruchamianie CLI, reguły statusu), `XordockUI` (pulpit), `XordockApp` (pasek menu, okno, arkusze), `XordockPreview` (render pulpitu do PNG); bez dostępu do udziałów |
 
 Zależności: biblioteka standardowa Go, cgo do Security.framework i libfuse3 (macFUSE).
 
@@ -92,3 +94,4 @@ Metodyka [Rondo + Context-Driven-Development](https://workwithrondo.com):
 | [S006](specs/S006-fizyczny-nosnik.md) | Udziały A i B na różnych fizycznych nośnikach | szkic (decyzje zebrane) |
 | [S007](specs/S007-aplikacja-macos.md) | Aplikacja macOS: pasek menu i okno | dostarczona; G6, G9 do testu właściciela |
 | [S008](specs/S008-kopia-A-w-icloud.md) | Kopia udziału A w iCloud Drive | dostarczona; G7 do testu właściciela |
+| [S009](specs/S009-przejrzysty-pulpit.md) | Przejrzysty pulpit sejfu | dostarczona |

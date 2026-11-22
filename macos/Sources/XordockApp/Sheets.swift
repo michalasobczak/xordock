@@ -77,7 +77,7 @@ struct BackupSheet: View {
                 if vault.mounted {
                     Text("Sejf zostanie odmontowany (zapisz i zamknij otwarte pliki).").foregroundStyle(.orange)
                 }
-                Text("Kolejno: migawka bieżącego stanu, kopia udziałów B na kartę zapasową, kopia udziałów A do iCloud Drive, weryfikacja i punkt READY.")
+                Text("Migawka → kopia B na kartę zapasową → kopia A do iCloud → weryfikacja.")
                 if !model.state.icloud {
                     Text("iCloud Drive niedostępny: powstanie tylko kopia B. Utrata SSD = utrata danych.").foregroundStyle(.orange)
                 }
@@ -176,7 +176,7 @@ struct RecoverySheet: View {
                         Text("Składa i sprawdza wszystkie pliki punktu, niczego nie zapisuje.").font(.caption)
                         Spacer()
                         Button("Weryfikuj") {
-                            Task { await model.perform("Weryfikacja punktu…", [Commands.verify(name: target.name, spare: s.path, point: p.id, fromICloud: fromICloud)]) }
+                            Task { await model.perform("Weryfikacja punktu…", [Commands.verify(name: target.name, spare: s.path, point: p.id, fromICloud: fromICloud)], success: "Punkt kompletny: wszystkie pliki dają się odtworzyć.") }
                         }
                     }
                 }
@@ -198,7 +198,7 @@ struct RecoverySheet: View {
                             Button("Odtwórz") {
                                 guard let c = newCard else { return }
                                 Task {
-                                    await model.perform("Odtwarzanie…", [Commands.restore(name: target.name, spare: s.path, point: p.id, card: c.path, newName: newName, fromICloud: fromICloud)])
+                                    await model.perform("Odtwarzanie…", [Commands.restore(name: target.name, spare: s.path, point: p.id, card: c.path, newName: newName, fromICloud: fromICloud)], success: "Odtworzono sejf „\(newName)”. Sprawdź go, potem usuń wszystkie kopie starego A.")
                                 }
                             }
                             .disabled(newCard == nil || VaultName.validate(newName) != nil)
@@ -212,7 +212,7 @@ struct RecoverySheet: View {
                 Button("Zamknij") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             if let e = model.errorText { Text(e).foregroundStyle(.red).textSelection(.enabled) }
-            if let m = model.message, !m.isEmpty { Text(m).textSelection(.enabled) }
+            if let m = model.message, !m.isEmpty { Text(m).foregroundStyle(.green).textSelection(.enabled) }
         }
         .disabled(model.busy != nil)
         .padding(20)
@@ -251,7 +251,7 @@ struct RecoverySheet: View {
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
-            await model.perform("Eksport…", [Commands.export(name: target.name, spare: spare.path, point: point.id, to: url.path, fromICloud: fromICloud)])
+            await model.perform("Eksport…", [Commands.export(name: target.name, spare: spare.path, point: point.id, to: url.path, fromICloud: fromICloud)], success: "Wyeksportowano do \(url.lastPathComponent) (pliki jawne).")
         }
     }
 }

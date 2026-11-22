@@ -14,7 +14,8 @@ final class AppModel {
     var volumes: [VolumeInfo] = []
     var selection: String?
     var busy: String?          // opis trwającej akcji
-    var message: String?       // ostatni wynik akcji
+    var message: String?       // ostatni wynik akcji: jedno zdanie
+    var output: String?        // pełne wyjście CLI ostatniej akcji (pod „Szczegóły”)
     var errorText: String?     // ostatni błąd
     var cliMissing = false
 
@@ -65,11 +66,12 @@ final class AppModel {
 
     /// Wykonuje akcję CLI z blokadą przycisków i komunikatem wyniku.
     @discardableResult
-    func perform(_ title: String, _ steps: [[String]]) async -> Bool {
+    func perform(_ title: String, _ steps: [[String]], success: String = "Gotowe.") async -> Bool {
         guard let cli, busy == nil else { return false }
         busy = title
         errorText = nil
         message = nil
+        output = nil
         defer { busy = nil }
         var outs: [String] = []
         for args in steps {
@@ -82,7 +84,9 @@ final class AppModel {
                 return false
             }
         }
-        message = outs.filter { !$0.isEmpty }.joined(separator: "\n")
+        let full = outs.filter { !$0.isEmpty }.joined(separator: "\n")
+        output = full.isEmpty ? nil : full
+        message = success
         await refresh()
         return true
     }
@@ -117,7 +121,7 @@ final class AppModel {
             try? await Task.sleep(for: .milliseconds(500))
             await refresh()
             if state.vaults.first(where: { $0.name == name })?.mounted == true {
-                message = "Sejf „\(name)” zamontowany w \(v.mountpoint)."
+                message = "Sejf „\(name)” otwarty w Finderze."
                 busy = nil
                 NSWorkspace.shared.open(URL(fileURLWithPath: v.mountpoint))
                 return
@@ -129,7 +133,7 @@ final class AppModel {
     }
 
     func unmount(_ v: VaultInfo) async -> Bool {
-        let ok = await perform("Odmontowywanie…", [Commands.unmount(name: v.name)])
+        let ok = await perform("Odmontowywanie…", [Commands.unmount(name: v.name)], success: "Sejf „\(v.name)” odmontowany. Kartę można wyjąć.")
         guard ok else { return false }
         for _ in 0..<20 {
             if state.vaults.first(where: { $0.name == v.name })?.mounted != true { return true }
@@ -141,7 +145,7 @@ final class AppModel {
     }
 
     func create(name: String, card: VolumeInfo) async -> Bool {
-        let ok = await perform("Zakładanie sejfu…", [Commands.initVault(name: name, card: card.path)])
+        let ok = await perform("Zakładanie sejfu…", [Commands.initVault(name: name, card: card.path)], success: "Sejf „\(name)” założony.")
         if ok { selection = name }
         return ok
     }
@@ -151,11 +155,12 @@ final class AppModel {
         if v.mounted {
             guard await unmount(v) else { return false }
         }
-        return await perform("Migawka i backup…", [Commands.snapshot(name: v.name), Commands.backup(name: v.name, spare: spare.path)])
+        return await perform("Migawka i backup…", [Commands.snapshot(name: v.name), Commands.backup(name: v.name, spare: spare.path)],
+                             success: "Backup gotowy: kopia B na „\(spare.name)”\(state.icloud ? ", kopia A w iCloud" : "").")
     }
 
     func fsck(_ v: VaultInfo) async {
-        await perform("Sprawdzanie spójności…", [Commands.fsck(name: v.name)])
+        await perform("Sprawdzanie spójności…", [Commands.fsck(name: v.name)], success: "Sejf spójny.")
     }
 
     func points(name: String, spare: VolumeInfo, fromICloud: Bool) async throws -> PointsResult {

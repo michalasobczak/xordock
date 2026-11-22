@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XordockCore
+import XordockUI
 
 /// Co odzyskujemy: nazwa i identyfikator sejfu, skąd udział A.
 struct RecoveryTarget: Hashable {
@@ -31,13 +32,11 @@ struct MainView: View {
             List(selection: $model.selection) {
                 Section("Sejfy") {
                     ForEach(model.state.vaults) { v in
-                        Label {
-                            VStack(alignment: .leading) {
-                                Text(v.name)
-                                Text(v.statusLine).font(.caption).foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: v.mounted ? "lock.open.fill" : (v.card == nil ? "externaldrive.badge.xmark" : "lock.fill"))
+                        HStack {
+                            Image(systemName: v.mounted ? "lock.open.fill" : "lock.fill").foregroundStyle(.secondary)
+                            Text(v.name)
+                            Spacer()
+                            HealthDot(level: VaultHealth.evaluate(v, icloud: model.state.icloud).level)
                         }
                         .tag(v.name)
                     }
@@ -66,7 +65,8 @@ struct MainView: View {
                 if let c = model.selectedOrphan {
                     OrphanDetail(copy: c, sheet: $sheet)
                 } else if let v = model.selected {
-                    VaultDetail(model: model, vault: v, sheet: $sheet)
+                    Dashboard(vault: v, icloud: model.state.icloud, masks: model.state.masks, busy: model.busy != nil,
+                              actions: actions(for: v))
                 } else {
                     ContentUnavailableView("Brak sejfów", systemImage: "lock.shield",
                                            description: Text("Załóż pierwszy sejf przyciskiem „Nowy sejf…”."))
@@ -87,12 +87,34 @@ struct MainView: View {
         }
     }
 
+    private func actions(for v: VaultInfo) -> DashboardActions {
+        var a = DashboardActions()
+        a.primary = { action in
+            switch action {
+            case .mount: Task { await model.mount(v) }
+            case .showInFinder: model.showInFinder(v.mountpoint)
+            case .backup: sheet = .backup(v)
+            case .details: model.errorText = v.error
+            case .none: break
+            }
+        }
+        a.mount = { Task { await model.mount(v) } }
+        a.unmount = { Task { _ = await model.unmount(v) } }
+        a.backup = { sheet = .backup(v) }
+        a.recovery = {
+            sheet = .recovery(RecoveryTarget(name: v.name, id: v.id, fromICloud: false, mounted: v.mounted, hasACopy: v.hasACopy))
+        }
+        a.fsck = { Task { await model.fsck(v) } }
+        a.showLog = { model.revealLog(v) }
+        return a
+    }
+
     @ViewBuilder private var banners: some View {
         if model.cliMissing {
             Banner(text: "Nie znaleziono programu xordock. Zbuduj aplikację skryptem scripts/build-app.sh.", style: .error)
         }
         if !model.state.fileVault {
-            Banner(text: "FileVault jest wyłączony. Aplikacje mogą zostawiać jawne kopie plików na SSD. Włącz FileVault w Ustawieniach systemowych.", style: .warning)
+            Banner(text: "FileVault wyłączony: aplikacje mogą zostawiać jawne kopie plików na SSD.", style: .warning)
         }
         if let b = model.busy {
             HStack { ProgressView().controlSize(.small); Text(b) }.padding(8)
@@ -101,7 +123,7 @@ struct MainView: View {
             Banner(text: e, style: .error) { model.errorText = nil }
         }
         if let m = model.message, !m.isEmpty {
-            Banner(text: m, style: .info) { model.message = nil }
+            Banner(text: m, style: .info, details: model.output) { model.message = nil; model.output = nil }
         }
     }
 }
@@ -110,14 +132,24 @@ struct Banner: View {
     enum Style { case info, warning, error }
     let text: String
     let style: Style
+    var details: String? = nil
     var onClose: (() -> Void)?
+    @State private var expanded = false
 
     var body: some View {
-        HStack(alignment: .top) {
-            Image(systemName: style == .info ? "checkmark.circle" : "exclamationmark.triangle")
-            Text(text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-            if let onClose {
-                Button { onClose() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Image(systemName: style == .info ? "checkmark.circle" : "exclamationmark.triangle")
+                Text(text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                if details != nil {
+                    Button(expanded ? "Ukryj" : "Szczegóły") { expanded.toggle() }.buttonStyle(.link)
+                }
+                if let onClose {
+                    Button { onClose() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
+                }
+            }
+            if expanded, let d = details {
+                Text(d).font(.caption.monospaced()).textSelection(.enabled).foregroundStyle(.secondary)
             }
         }
         .padding(10)
@@ -130,82 +162,6 @@ struct Banner: View {
         case .warning: return .orange
         case .error: return .red
         }
-    }
-}
-
-struct VaultDetail: View {
-    let model: AppModel
-    let vault: VaultInfo
-    @Binding var sheet: SheetKind?
-
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent("Stan", value: vault.statusLine)
-                LabeledContent("Karta robocza (B)", value: vault.cardVolume ?? "niepodłączona")
-                LabeledContent("Udział A (SSD)") {
-                    Text(vault.a).textSelection(.enabled).font(.callout)
-                }
-                if vault.mounted {
-                    LabeledContent("Wolumin", value: vault.mountpoint)
-                }
-            }
-            Section("Backup") {
-                if let b = vault.lastBackup {
-                    LabeledContent("Ostatni punkt READY", value: b.time.formatted(date: .abbreviated, time: .shortened))
-                    LabeledContent("Zmian od backupu", value: "\(vault.changesSinceBackup)")
-                } else if vault.card != nil, vault.error == nil {
-                    Text("Brak potwierdzonego punktu odzyskiwania. Utrata karty roboczej oznacza utratę danych.")
-                        .foregroundStyle(.orange)
-                }
-                if vault.card != nil, vault.backupDue, vault.lastBackup != nil {
-                    Text("Ostatni backup jest starszy niż 7 dni.").foregroundStyle(.orange)
-                }
-                if let c = vault.aCopy, c.points > 0 {
-                    LabeledContent("Kopia udziału A (iCloud)", value: c.lastPoint?.formatted(date: .abbreviated, time: .shortened) ?? "jest")
-                } else if vault.lastBackup != nil {
-                    Text(model.state.icloud
-                         ? "Brak kopii udziału A w iCloud. Utrata SSD = utrata danych. Zrób backup, żeby powstała."
-                         : "iCloud Drive niedostępny: kopia udziału A nie powstaje. Utrata SSD = utrata danych.")
-                        .foregroundStyle(.orange)
-                }
-                LabeledContent("Migawki", value: "\(vault.snapshots)")
-                LabeledContent("Karty zapasowe", value: vault.spares.isEmpty ? "brak podłączonych" : vault.spares.map(\.volume).joined(separator: ", "))
-            }
-            Section {
-                HStack {
-                    if vault.mounted {
-                        Button("Pokaż w Finderze") { model.showInFinder(vault.mountpoint) }
-                        Button("Odmontuj") { Task { _ = await model.unmount(vault) } }
-                    } else {
-                        Button("Zamontuj") { Task { await model.mount(vault) } }
-                            .disabled(vault.card == nil || vault.error != nil)
-                            .keyboardShortcut(.defaultAction)
-                    }
-                    Button("Backup teraz…") { sheet = .backup(vault) }
-                        .disabled(vault.card == nil)
-                    Button("Odzyskiwanie…") {
-                        sheet = .recovery(RecoveryTarget(name: vault.name, id: vault.id, fromICloud: false,
-                                                         mounted: vault.mounted, hasACopy: vault.hasACopy))
-                    }
-                    Spacer()
-                    Menu("Więcej") {
-                        Button("Sprawdź spójność (fsck)") { Task { await model.fsck(vault) } }
-                            .disabled(vault.card == nil || vault.mounted)
-                        Button("Pokaż log montowania") { model.revealLog(vault) }
-                    }
-                    .fixedSize()
-                }
-                .disabled(model.busy != nil)
-            }
-            Section {
-                Text("Maski: \(model.state.masks)")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Odmontuj przed wyjęciem karty. Wyjęcie karty przy zamontowanym sejfie blokuje wolumin, a niezapisane zmiany przepadają.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
     }
 }
 

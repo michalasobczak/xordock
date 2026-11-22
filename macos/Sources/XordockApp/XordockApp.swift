@@ -46,12 +46,8 @@ struct MenuContent: View {
         }
         ForEach(model.state.vaults) { v in
             Section(v.name) {
-                Text(v.statusLine)
-                if v.card != nil, v.backupDue {
-                    Text(v.lastBackup == nil ? "⚠︎ Brak backupu" : "⚠︎ Backup starszy niż 7 dni")
-                } else if v.card != nil, v.lastBackup != nil, !v.hasACopy {
-                    Text("⚠︎ Brak kopii udziału A w iCloud")
-                }
+                let h = VaultHealth.evaluate(v, icloud: model.state.icloud)
+                Text((h.level == .ok ? "✓ " : "⚠︎ ") + h.title)
                 if v.mounted {
                     Button("Pokaż w Finderze") { model.showInFinder(v.mountpoint) }
                     Button("Odmontuj") { Task { _ = await model.unmount(v) } }
