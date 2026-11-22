@@ -11,7 +11,7 @@ import (
 
 type Point = vault.Point
 
-// Polecenia migawek, backupu, odzyskiwania i stanu (S004 §5.4–5.6, G-08).
+// Snapshot, backup, recovery and status commands (S004 §5.4–5.6, G-08).
 
 func cmdStatus(args []string) error {
 	fl := flag.NewFlagSet("status", flag.ExitOnError)
@@ -20,20 +20,20 @@ func cmdStatus(args []string) error {
 	fl.Parse(args)
 	id, name, err := vault.ReadVaultID(c.aRoot())
 	if err != nil {
-		return fmt.Errorf("udział A: %w", err)
+		return fmt.Errorf("share A: %w", err)
 	}
-	fmt.Printf("Sejf %q (%s)\n  A: %s\n", name, id, c.aRoot())
+	fmt.Printf("Vault %q (%s)\n  A: %s\n", name, id, c.aRoot())
 	cards := vault.FindCards("/Volumes", id)
 	for _, k := range cards {
-		role := "robocza"
+		role := "working"
 		if k.Role != "" {
-			role = "zapasowa"
+			role = "spare"
 		}
-		fmt.Printf("  karta %s: %s\n", role, k.Root)
+		fmt.Printf("  %s card: %s\n", role, k.Root)
 	}
 	b, err := findB(c.aRoot())
 	if err != nil {
-		fmt.Println("  Karta robocza: BRAK. Sejf niedostępny. Po utracie karty: xordock recover --spare …")
+		fmt.Println("  Working card: MISSING. Vault unavailable. If the card is lost: xordock recover --spare …")
 		return nil
 	}
 	v, err := vault.Open(c.aRoot(), b, vault.Options{})
@@ -41,27 +41,27 @@ func cmdStatus(args []string) error {
 		return err
 	}
 	defer v.Close()
-	fmt.Printf("  commit %d, migawek: %d\n  Maski: %s\n", v.Seq(), len(v.Snapshots()), v.MaskKind())
+	fmt.Printf("  commit %d, snapshots: %d\n  Masks: %s\n", v.Seq(), len(v.Snapshots()), v.MaskKind())
 	if jc, ok := readCopy(aCopyDir(c.name)); ok && jc.ID == id.String() && jc.LastPoint != "" {
-		fmt.Printf("  Kopia udziału A w iCloud: %s, ostatni punkt %s\n", jc.Path, jc.LastPoint)
+		fmt.Printf("  Share A copy in iCloud Drive: %s, last point %s\n", jc.Path, jc.LastPoint)
 	} else {
-		fmt.Println("  Kopia udziału A w iCloud: BRAK. Utrata SSD = utrata danych.")
+		fmt.Println("  Share A copy in iCloud Drive: MISSING. Losing the SSD = losing the data.")
 	}
 	ref, snap, ok := v.LastBackup()
 	if !ok {
-		fmt.Println("  Backup: BRAK potwierdzonego punktu odzyskiwania. Utrata karty roboczej = utrata danych.")
+		fmt.Println("  Backup: NO confirmed recovery point. Losing the working card = losing the data.")
 		return nil
 	}
-	fmt.Printf("  Ostatni backup READY: %s, punkt %s, migawka %s (commit %d), nośnik %s\n",
+	fmt.Printf("  Last READY backup: %s, point %s, snapshot %s (commit %d), medium %s\n",
 		ref.Time.Local().Format("2006-01-02 15:04"), ref.Point, snap.ID, snap.Seq, ref.Media)
 	ch, err := v.Changes(snap.ID)
 	if err != nil {
 		return err
 	}
 	if len(ch) == 0 {
-		fmt.Println("  Od backupu bez zmian.")
+		fmt.Println("  No changes since the backup.")
 	} else {
-		fmt.Printf("  Po utracie karty roboczej przepadnie %d zmian (ścieżek) od tego backupu.\n", len(ch))
+		fmt.Printf("  Losing the working card would lose %d changes (paths) made since this backup.\n", len(ch))
 	}
 	return nil
 }
@@ -71,7 +71,7 @@ func cmdSnapshot(args []string) error {
 	fl := flag.NewFlagSet("snapshot", flag.ExitOnError)
 	var c common
 	c.bind(fl)
-	sid := fl.String("id", "", "identyfikator migawki")
+	sid := fl.String("id", "", "snapshot ID")
 	fl.Parse(args)
 	v, err := open(c)
 	if err != nil {
@@ -84,7 +84,7 @@ func cmdSnapshot(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Migawka %s (commit %d)\n", s.ID, s.Seq)
+		fmt.Printf("Snapshot %s (commit %d)\n", s.ID, s.Seq)
 	case "list", "":
 		for _, s := range v.Snapshots() {
 			ready := 0
@@ -93,18 +93,18 @@ func cmdSnapshot(args []string) error {
 					ready++
 				}
 			}
-			fmt.Printf("%s  commit %-5d %s  punktów odzyskiwania: %d\n", s.ID, s.Seq, s.Time.Local().Format("2006-01-02 15:04"), ready)
+			fmt.Printf("%s  commit %-5d %s  recovery points: %d\n", s.ID, s.Seq, s.Time.Local().Format("2006-01-02 15:04"), ready)
 		}
 	case "rm":
 		if *sid == "" {
-			return errors.New("podaj --id")
+			return errors.New("--id is required")
 		}
 		if err := v.DeleteSnapshot(*sid); err != nil {
 			return err
 		}
-		fmt.Println("Usunięto migawkę", *sid)
+		fmt.Println("Deleted snapshot", *sid)
 	default:
-		return fmt.Errorf("nieznane polecenie snapshot %q", sub)
+		return fmt.Errorf("unknown snapshot command %q", sub)
 	}
 	return nil
 }
@@ -114,9 +114,9 @@ func cmdBackup(args []string) error {
 	fl := flag.NewFlagSet("backup", flag.ExitOnError)
 	var c common
 	c.bind(fl)
-	spareVol := fl.String("spare", "", "wolumen karty zapasowej, np. /Volumes/zapas")
-	sid := fl.String("snapshot", "", "migawka (domyślnie najnowsza)")
-	noICloud := fl.Bool("no-icloud", false, "nie kopiuj udziału A do iCloud Drive (S008)")
+	spareVol := fl.String("spare", "", "spare card volume, e.g. /Volumes/spare")
+	sid := fl.String("snapshot", "", "snapshot (default: the newest)")
+	noICloud := fl.Bool("no-icloud", false, "do not copy share A to iCloud Drive (S008)")
 	fl.Parse(args)
 	spare, err := spareRoot(*spareVol, c.name)
 	if err != nil {
@@ -138,37 +138,37 @@ func cmdBackup(args []string) error {
 			p, err = v.Backup(spare, *sid)
 		}
 		if p.ID != "" {
-			fmt.Printf("Punkt odzyskiwania READY: %s\n  migawka %s (commit %d), %d obiektów, %d B\n  utworzony %s\n  udziały B: %s\n",
+			fmt.Printf("READY recovery point: %s\n  snapshot %s (commit %d), %d objects, %d B\n  created %s\n  B shares: %s\n",
 				p.ID, p.Snapshot, p.Seq, p.Objects, p.Bytes, p.Created.Local().Format("2006-01-02 15:04"), spare)
 		}
 		if pa.ID != "" {
-			fmt.Printf("  udziały A: %s (iCloud Drive)\n", aCopy)
+			fmt.Printf("  A shares: %s (iCloud Drive)\n", aCopy)
 		}
 		if err != nil {
 			return err
 		}
 		switch {
 		case *noICloud:
-			fmt.Println("UWAGA: kopia udziału A pominięta (--no-icloud). Utrata SSD = utrata danych, o ile nie masz innej kopii A.")
+			fmt.Println("WARNING: share A copy skipped (--no-icloud). Losing the SSD = losing the data, unless you have another copy of A.")
 		case !useICloud:
-			fmt.Println("UWAGA: iCloud Drive niedostępny, kopia udziału A NIE powstała. Utrata SSD = utrata danych.")
+			fmt.Println("WARNING: iCloud Drive unavailable, the share A copy was NOT created. Losing the SSD = losing the data.")
 		}
-		fmt.Println("UWAGA: zmiany wykonane po tej migawce NIE znajdują się w kopiach (B-05).")
+		fmt.Println("WARNING: changes made after this snapshot are NOT in the backups (B-05).")
 	case "prune":
 		np, no, err := v.PruneBackup(spare)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Karta zapasowa: usunięto %d starszych punktów i %d udziałów; najnowszy punkt zostaje.\n", np, no)
+		fmt.Printf("Spare card: deleted %d older points and %d shares; the newest point is kept.\n", np, no)
 		if aCopy := aCopyDir(c.name); exists(aCopy) {
 			np, no, err := v.PruneACopy(aCopy)
 			if err != nil {
-				return fmt.Errorf("kopia A w iCloud: %w", err)
+				return fmt.Errorf("share A copy in iCloud Drive: %w", err)
 			}
-			fmt.Printf("Kopia A w iCloud: usunięto %d starszych punktów i %d udziałów; najnowszy punkt zostaje.\n", np, no)
+			fmt.Printf("Share A copy in iCloud Drive: deleted %d older points and %d shares; the newest point is kept.\n", np, no)
 		}
 	default:
-		return fmt.Errorf("nieznane polecenie backup %q", sub)
+		return fmt.Errorf("unknown backup command %q", sub)
 	}
 	return nil
 }
@@ -177,13 +177,13 @@ func cmdRecover(args []string) error {
 	fl := flag.NewFlagSet("recover", flag.ExitOnError)
 	var c common
 	c.bind(fl)
-	spareVol := fl.String("spare", "", "wolumen karty zapasowej")
-	point := fl.String("point", "", "punkt odzyskiwania (domyślnie najnowszy READY)")
-	to := fl.String("to", "", "export: katalog docelowy")
-	card := fl.String("card", "", "restore: wolumen nowej karty roboczej")
-	newName := fl.String("new-name", "", "restore: nazwa nowego sejfu (domyślnie <name>-odzyskany)")
-	newA := fl.String("new-a", "", "restore: katalog nowego udziału A")
-	fromICloud := fl.Bool("from-icloud", false, "udział A z kopii w iCloud Drive (po utracie SSD, S008)")
+	spareVol := fl.String("spare", "", "spare card volume")
+	point := fl.String("point", "", "recovery point (default: the newest READY)")
+	to := fl.String("to", "", "export: target directory")
+	card := fl.String("card", "", "restore: volume of the new working card")
+	newName := fl.String("new-name", "", "restore: name of the new vault (default <name>-recovered)")
+	newA := fl.String("new-a", "", "restore: directory of the new share A")
+	fromICloud := fl.Bool("from-icloud", false, "share A from the copy in iCloud Drive (after losing the SSD, S008)")
 	fl.Parse(args)
 	sub, rest := subcommand(fl.Args())
 	if len(rest) > 0 {
@@ -206,10 +206,10 @@ func cmdRecover(args []string) error {
 	case "list", "":
 		pts, bad := r.Points()
 		for _, p := range pts {
-			fmt.Printf("%s  READY  commit %-5d %s  %d obiektów\n", p.ID, p.Seq, p.Created.Local().Format("2006-01-02 15:04"), p.Objects)
+			fmt.Printf("%s  READY  commit %-5d %s  %d objects\n", p.ID, p.Seq, p.Created.Local().Format("2006-01-02 15:04"), p.Objects)
 		}
 		for _, b := range bad {
-			fmt.Println("odrzucony:", b)
+			fmt.Println("rejected:", b)
 		}
 		if len(pts) == 0 {
 			return vault.ErrNoPoint
@@ -219,28 +219,28 @@ func cmdRecover(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Punkt %s kompletny: %d plików złożonych i sprawdzonych.\n", p.ID, n)
+		fmt.Printf("Point %s complete: %d files reassembled and verified.\n", p.ID, n)
 	case "export":
 		if *to == "" {
-			return errors.New("podaj --to")
+			return errors.New("--to is required")
 		}
 		w, p, err := r.View(*point)
 		if err != nil {
 			return err
 		}
-		fmt.Println("UWAGA: wyeksportowane pliki NIE są chronione podziałem XOR.")
+		fmt.Println("WARNING: exported files are NOT protected by the XOR split.")
 		n, err := vault.ExportTo(w, *to)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Wyeksportowano %d plików z punktu %s do %s\n", n, p.ID, *to)
+		fmt.Printf("Exported %d files from point %s to %s\n", n, p.ID, *to)
 	case "restore":
 		if *card == "" {
-			return errors.New("podaj --card /Volumes/NOWA_KARTA")
+			return errors.New("--card /Volumes/NEW_CARD is required")
 		}
 		name := *newName
 		if name == "" {
-			name = c.name + "-odzyskany"
+			name = c.name + "-recovered"
 		}
 		if err := validName(name); err != nil {
 			return err
@@ -261,13 +261,14 @@ func cmdRecover(args []string) error {
 		defer nv.Close()
 		n, err := vault.CopyInto(w, nv)
 		if err != nil {
-			return fmt.Errorf("odtwarzanie przerwane po %d plikach: %w", n, err)
+			return fmt.Errorf("restore interrupted after %d files: %w", n, err)
 		}
-		fmt.Printf("Odtworzono %d plików z punktu %s do nowego sejfu %q (nowe maski)\n  A: %s\n  B: %s\n", n, p.ID, name, aDir, bDir)
-		fmt.Println("Karta zapasowa i stary udział A są nietknięte. Zgubioną kartę traktuj jako skopiowaną;")
-		fmt.Println("po sprawdzeniu nowego sejfu usuń stary udział A, żeby zgubiona karta niczego już nie odsłaniała.")
+		fmt.Printf("Restored %d files from point %s to the new vault %q (new masks)\n  A: %s\n  B: %s\n", n, p.ID, name, aDir, bDir)
+		fmt.Println("The spare card and the old share A are untouched. Treat the lost card as copied;")
+		fmt.Println("after checking the new vault, delete EVERY copy of the old share A (SSD, iCloud Drive including")
+		fmt.Println("Recently Deleted, Time Machine) so the lost card no longer reveals anything (docs/recovery.md).")
 	default:
-		return fmt.Errorf("nieznane polecenie recover %q", sub)
+		return fmt.Errorf("unknown recover command %q", sub)
 	}
 	return nil
 }

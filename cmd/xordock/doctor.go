@@ -1,7 +1,7 @@
 package main
 
-// xordock doctor: sprawdzenie wymagań (S011). Wynik tekstowy albo JSON dla
-// aplikacji. Próbne montowanie tylko z --probe-mount.
+// xordock doctor: requirements check (S011). Text output or JSON for
+// the app. Test mount only with --probe-mount.
 
 import (
 	"flag"
@@ -16,7 +16,7 @@ import (
 
 const macfuseURL = "https://macfuse.github.io/"
 
-// Ustawienia systemowe → Ogólne → Rozszerzenia i elementy logowania.
+// System Settings → General → Login Items & Extensions.
 const extensionsURL = "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"
 
 type check struct {
@@ -33,7 +33,7 @@ type doctorResult struct {
 	Checks         []check `json:"checks"`
 }
 
-// versionAtLeast porównuje wersje „a.b.c” liczbowo.
+// versionAtLeast compares "a.b.c" versions numerically.
 func versionAtLeast(v, min string) bool {
 	vs, ms := strings.Split(v, "."), strings.Split(min, ".")
 	for i := range ms {
@@ -49,7 +49,7 @@ func versionAtLeast(v, min string) bool {
 	return true
 }
 
-// Punkty podmiany w testach (S011 G3: brak macFUSE bez odinstalowania).
+// Substitution points for tests (S011 G3: no macFUSE without uninstalling it).
 var (
 	macfusePlist     = "/Library/Filesystems/macfuse.fs/Contents/Info.plist"
 	macfuseAvailable = fusemount.Available
@@ -77,62 +77,62 @@ func runDoctor(probe bool) doctorResult {
 
 	osv := osVersion()
 	if versionAtLeast(osv, "26.0") {
-		add(check{ID: "macos", Title: "macOS 26 lub nowszy", Level: "ok", Detail: "macOS " + osv})
+		add(check{ID: "macos", Title: "macOS 26 or later", Level: "ok", Detail: "macOS " + osv})
 	} else {
-		add(check{ID: "macos", Title: "macOS 26 lub nowszy", Level: "error",
-			Detail: fmt.Sprintf("Masz macOS %s. Moduł FSKit macFUSE wymaga macOS 26.", osv)})
+		add(check{ID: "macos", Title: "macOS 26 or later", Level: "error",
+			Detail: fmt.Sprintf("You have macOS %s. The macFUSE FSKit module requires macOS 26.", osv)})
 	}
 
 	ver := plistValue(macfusePlist, "CFBundleShortVersionString")
 	r.MacFUSEVersion = ver
 	switch {
 	case ver == "" || !macfuseAvailable():
-		add(check{ID: "macfuse", Title: "macFUSE 5.5 lub nowszy", Level: "error",
-			Detail: "macFUSE nie jest zainstalowany. Bez niego sejfu nie da się otworzyć w Finderze.", FixLabel: "Pobierz macFUSE", FixURL: macfuseURL})
+		add(check{ID: "macfuse", Title: "macFUSE 5.5 or later", Level: "error",
+			Detail: "macFUSE is not installed. Without it the vault cannot be opened in Finder.", FixLabel: "Download macFUSE", FixURL: macfuseURL})
 	case !versionAtLeast(ver, "5.5"):
-		add(check{ID: "macfuse", Title: "macFUSE 5.5 lub nowszy", Level: "error",
-			Detail: "Zainstalowana wersja " + ver + " jest za stara.", FixLabel: "Pobierz macFUSE", FixURL: macfuseURL})
+		add(check{ID: "macfuse", Title: "macFUSE 5.5 or later", Level: "error",
+			Detail: "Installed version " + ver + " is too old.", FixLabel: "Download macFUSE", FixURL: macfuseURL})
 	default:
-		add(check{ID: "macfuse", Title: "macFUSE 5.5 lub nowszy", Level: "ok", Detail: "macFUSE " + ver})
+		add(check{ID: "macfuse", Title: "macFUSE 5.5 or later", Level: "ok", Detail: "macFUSE " + ver})
 	}
 
-	ext := check{ID: "extension", Title: "Rozszerzenie systemu plików macFUSE", Level: "unknown",
-		Detail: "Nie sprawdzono. Sprawdzenie wymaga próbnego montowania."}
+	ext := check{ID: "extension", Title: "macFUSE file system extension", Level: "unknown",
+		Detail: "Not checked. Checking requires a test mount."}
 	if probe && ver != "" && macfuseAvailable() {
 		if err := probeMount(15 * time.Second); err != nil {
 			ext.Level = "error"
-			ext.Detail = "Montowanie się nie udało. Włącz macFUSE w Ustawieniach systemowych → Ogólne → Rozszerzenia i elementy logowania → Rozszerzenia systemu plików."
-			ext.FixLabel, ext.FixURL = "Otwórz Ustawienia systemowe", extensionsURL
+			ext.Detail = "Mounting failed. Enable macFUSE in System Settings → General → Login Items & Extensions → File System Extensions."
+			ext.FixLabel, ext.FixURL = "Open System Settings", extensionsURL
 		} else {
-			ext.Level, ext.Detail = "ok", "Próbne montowanie udane."
+			ext.Level, ext.Detail = "ok", "Test mount succeeded."
 		}
 	}
 	if ver == "" || !macfuseAvailable() {
-		ext.Detail = "Sprawdzę po zainstalowaniu macFUSE."
+		ext.Detail = "Will be checked after macFUSE is installed."
 	}
 	add(ext)
 
 	if fileVaultOn() {
-		add(check{ID: "filevault", Title: "FileVault", Level: "ok", Detail: "Włączony."})
+		add(check{ID: "filevault", Title: "FileVault", Level: "ok", Detail: "On."})
 	} else {
 		add(check{ID: "filevault", Title: "FileVault", Level: "warning",
-			Detail:   "Wyłączony. Programy mogą zostawiać jawne kopie plików z sejfu na SSD.",
-			FixLabel: "Otwórz ustawienia FileVault", FixURL: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?FileVault"})
+			Detail:   "Off. Apps may leave plain copies of vault files on the SSD.",
+			FixLabel: "Open FileVault settings", FixURL: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?FileVault"})
 	}
 	if iCloudAvailable() {
-		add(check{ID: "icloud", Title: "iCloud Drive", Level: "ok", Detail: "Kopia udziału A trafia do iCloud Drive."})
+		add(check{ID: "icloud", Title: "iCloud Drive", Level: "ok", Detail: "The share A copy goes to iCloud Drive."})
 	} else {
 		add(check{ID: "icloud", Title: "iCloud Drive", Level: "warning",
-			Detail:   "Niedostępny. Backup nie zrobi kopii udziału A, więc utrata Maca = utrata danych.",
-			FixLabel: "Otwórz ustawienia iCloud", FixURL: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings:icloud"})
+			Detail:   "Unavailable. Backup will not copy share A, so losing the Mac = losing the data.",
+			FixLabel: "Open iCloud settings", FixURL: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings:icloud"})
 	}
 	return r
 }
 
 func cmdDoctor(args []string) error {
 	fl := flag.NewFlagSet("doctor", flag.ExitOnError)
-	probe := fl.Bool("probe-mount", false, "sprawdź rozszerzenie macFUSE próbnym montowaniem (pusty wolumen, kilka sekund)")
-	asJSON := fl.Bool("json", false, "wynik JSON")
+	probe := fl.Bool("probe-mount", false, "check the macFUSE extension with a test mount (empty volume, a few seconds)")
+	asJSON := fl.Bool("json", false, "JSON output")
 	fl.Parse(args)
 	r := runDoctor(*probe)
 	if *asJSON {
@@ -148,7 +148,7 @@ func cmdDoctor(args []string) error {
 		bad = bad || c.Level == "error"
 	}
 	if bad {
-		return fmt.Errorf("brakuje wymaganych składników")
+		return fmt.Errorf("required components are missing")
 	}
 	return nil
 }

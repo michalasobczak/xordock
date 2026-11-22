@@ -35,11 +35,11 @@ func ok(t *testing.T, e syscall.Errno) {
 	}
 }
 
-// CG-01, CG-04 przez adapter: losowe zapisy i obcięcia dają te same bajty co
-// model, także po zamknięciu i ponownym otwarciu sejfu.
+// CG-01, CG-04 through the adapter: random writes and truncations give the same bytes as
+// the model, also after closing and reopening the vault.
 func TestRandomWritesMatchModel(t *testing.T) {
 	f, a, b := setup(t)
-	fh, e := f.Create("/plik")
+	fh, e := f.Create("/file")
 	ok(t, e)
 	var model []byte
 	r := rand.New(rand.NewPCG(1, 2))
@@ -47,7 +47,7 @@ func TestRandomWritesMatchModel(t *testing.T) {
 		switch r.IntN(10) {
 		case 0:
 			sz := int64(r.IntN(3 * bs))
-			ok(t, f.Truncate("/plik", fh, sz))
+			ok(t, f.Truncate("/file", fh, sz))
 			if sz < int64(len(model)) {
 				model = model[:sz]
 			} else {
@@ -64,7 +64,7 @@ func TestRandomWritesMatchModel(t *testing.T) {
 			n, e := f.Write(fh, off, data)
 			ok(t, e)
 			if n != len(data) {
-				t.Fatal("krótki zapis")
+				t.Fatal("short write")
 			}
 			if end := off + int64(len(data)); end > int64(len(model)) {
 				model = append(model, make([]byte, end-int64(len(model)))...)
@@ -74,7 +74,7 @@ func TestRandomWritesMatchModel(t *testing.T) {
 		got, e := f.Read(fh, 0, len(model)+10)
 		ok(t, e)
 		if !bytes.Equal(got, model) {
-			t.Fatalf("krok %d: odczyt różni się od modelu (%d vs %d B)", i, len(got), len(model))
+			t.Fatalf("step %d: read differs from the model (%d vs %d B)", i, len(got), len(model))
 		}
 	}
 	ok(t, f.Release(fh))
@@ -84,22 +84,22 @@ func TestRandomWritesMatchModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer v2.Close()
-	got, err := v2.GetFile("/plik")
+	got, err := v2.GetFile("/file")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, model) {
-		t.Fatal("po ponownym otwarciu treść inna")
+		t.Fatal("content differs after reopening")
 	}
 	if r := v2.Fsck(); !r.OK() {
 		t.Fatal(r.Problems)
 	}
 }
 
-// Duży plik: pełne bloki trafiają do obiektów przed commitem (spill).
+// Large file: full blocks go to objects before the commit (spill).
 func TestLargeFileSpills(t *testing.T) {
 	f, _, _ := setup(t)
-	fh, e := f.Create("/duzy")
+	fh, e := f.Create("/big")
 	ok(t, e)
 	chunk := bytes.Repeat([]byte("0123456789abcdef"), 1<<14) // 256 KiB
 	total := 0
@@ -109,51 +109,51 @@ func TestLargeFileSpills(t *testing.T) {
 		total += len(chunk)
 	}
 	if n := f.handles[fh]; len(n.dirty) > maxDirty {
-		t.Fatalf("w RAM %d bloków, limit %d", len(n.dirty), maxDirty)
+		t.Fatalf("%d blocks in RAM, limit %d", len(n.dirty), maxDirty)
 	}
 	ok(t, f.Release(fh))
-	got, err := f.v.GetFile("/duzy")
+	got, err := f.v.GetFile("/big")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != total || !bytes.Equal(got[:len(chunk)], chunk) || !bytes.Equal(got[total-len(chunk):], chunk) {
-		t.Fatal("treść dużego pliku zła")
+		t.Fatal("large file content is wrong")
 	}
 }
 
-// F-03: operacje katalogowe, rename z flagami, jawne błędy.
+// F-03: directory operations, rename with flags, explicit errors.
 func TestDirectoryOps(t *testing.T) {
 	f, _, _ := setup(t)
 	ok(t, f.Mkdir("/k"))
 	if e := f.Mkdir("/k"); e != syscall.EEXIST {
-		t.Fatalf("mkdir istniejącego: %v", e)
+		t.Fatalf("mkdir of an existing one: %v", e)
 	}
 	fh, e := f.Create("/k/a")
 	ok(t, e)
-	f.Write(fh, 0, []byte("treść"))
+	f.Write(fh, 0, []byte("content"))
 	ok(t, f.Release(fh))
 	if e := f.Rmdir("/k"); e != syscall.ENOTEMPTY {
-		t.Fatalf("rmdir niepustego: %v", e)
+		t.Fatalf("rmdir of a non-empty one: %v", e)
 	}
 	ok(t, f.Rename("/k/a", "/k/b", 0))
 	fh2, _ := f.Create("/k/c")
 	f.Release(fh2)
 	if e := f.Rename("/k/b", "/k/c", RenameExcl); e != syscall.EEXIST {
-		t.Fatalf("rename EXCL na istniejący: %v", e)
+		t.Fatalf("rename EXCL onto an existing one: %v", e)
 	}
 	if e := f.Rename("/k/b", "/k/c", RenameSwap); e != syscall.ENOTSUP {
 		t.Fatalf("rename SWAP: %v", e)
 	}
 	ents, e := f.Readdir("/k")
 	ok(t, e)
-	if len(ents) != 2 || ents[0].Name != "b" || ents[0].Attr.Size != int64(len("treść")) {
+	if len(ents) != 2 || ents[0].Name != "b" || ents[0].Attr.Size != int64(len("content")) {
 		t.Fatalf("readdir: %+v", ents)
 	}
 	ok(t, f.Unlink("/k/b"))
 	ok(t, f.Unlink("/k/c"))
 	ok(t, f.Rmdir("/k"))
 	if _, e := f.Getattr("/k"); e != syscall.ENOENT {
-		t.Fatalf("getattr usuniętego: %v", e)
+		t.Fatalf("getattr of a deleted one: %v", e)
 	}
 	mt := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	fh3, _ := f.Create("/t")
@@ -165,54 +165,54 @@ func TestDirectoryOps(t *testing.T) {
 	}
 }
 
-// O_TRUNC przy otwarciu i obcięcie nieotwartego pliku.
+// O_TRUNC on open and truncation of a file that is not open.
 func TestTruncateClosedAndOpenTrunc(t *testing.T) {
 	f, _, _ := setup(t)
 	f.v.PutFile("/x", bytes.Repeat([]byte("a"), bs+10))
 	ok(t, f.Truncate("/x", 0, 5))
 	if got, _ := f.v.GetFile("/x"); string(got) != "aaaaa" {
-		t.Fatalf("po truncate: %q", got)
+		t.Fatalf("after truncate: %q", got)
 	}
 	fh, e := f.Open("/x", true)
 	ok(t, e)
 	f.Write(fh, 0, []byte("b"))
 	ok(t, f.Release(fh))
 	if got, _ := f.v.GetFile("/x"); string(got) != "b" {
-		t.Fatalf("po O_TRUNC: %q", got)
+		t.Fatalf("after O_TRUNC: %q", got)
 	}
 }
 
-// SC-03, F-04: wyjęcie karty → każda operacja EIO, bufory wyczyszczone,
-// niezatwierdzone zmiany nie trafiają do sejfu.
+// SC-03, F-04: card removal → every operation EIO, buffers wiped,
+// uncommitted changes do not reach the vault.
 func TestCardRemovedIsDeterministicError(t *testing.T) {
 	f, _, _ := setup(t)
 	fh, _ := f.Create("/p")
-	f.Write(fh, 0, []byte("niezatwierdzone"))
+	f.Write(fh, 0, []byte("uncommitted"))
 	n := f.handles[fh]
 	buf := n.dirty[0]
 	f.Unavailable(syscall.ENXIO)
 	if _, e := f.Read(fh, 0, 10); e != syscall.EIO {
-		t.Fatalf("odczyt po wyjęciu karty: %v", e)
+		t.Fatalf("read after card removal: %v", e)
 	}
 	if _, e := f.Write(fh, 0, []byte("x")); e != syscall.EIO {
-		t.Fatalf("zapis po wyjęciu karty: %v", e)
+		t.Fatalf("write after card removal: %v", e)
 	}
 	if _, e := f.Getattr("/p"); e != syscall.EIO {
-		t.Fatalf("getattr po wyjęciu karty: %v", e)
+		t.Fatalf("getattr after card removal: %v", e)
 	}
 	if _, e := f.Getattr("/"); e != 0 {
-		t.Fatal("katalog główny musi odpowiadać, żeby dało się odmontować")
+		t.Fatal("the root directory must respond so it can be unmounted")
 	}
 	if !bytes.Equal(buf[:15], make([]byte, 15)) {
-		t.Fatal("bufor z jawną treścią nie został wyczyszczony")
+		t.Fatal("the plain-content buffer was not wiped")
 	}
 	f.Release(fh)
 	if f.SyncAll() == nil {
-		t.Fatal("SyncAll po wyjęciu karty zgłosił sukces")
+		t.Fatal("SyncAll reported success after card removal")
 	}
 }
 
-// Usunięcie otwartego pliku: jego zmiany nie wskrzeszają go przy zamknięciu.
+// Deleting an open file: its changes do not resurrect it on close.
 func TestUnlinkWhileOpen(t *testing.T) {
 	f, _, _ := setup(t)
 	fh, _ := f.Create("/u")
@@ -220,21 +220,21 @@ func TestUnlinkWhileOpen(t *testing.T) {
 	ok(t, f.Unlink("/u"))
 	ok(t, f.Release(fh))
 	if _, ok := f.v.Stat("/u"); ok {
-		t.Fatal("usunięty plik wrócił")
+		t.Fatal("deleted file came back")
 	}
 }
 
-// S011 G1, G5: wolumen próbny bez sejfu. Katalog główny odpowiada, każda
-// inna operacja daje EIO i żadna nie sięga do (nieistniejącego) sejfu.
+// S011 G1, G5: probe volume without a vault. The root directory responds, every
+// other operation gives EIO and none touches the (nonexistent) vault.
 func TestProbeFS(t *testing.T) {
 	f := NewProbe()
 	if a, e := f.Getattr("/"); e != 0 || !a.Dir {
-		t.Fatalf("katalog główny: %v %v", a, e)
+		t.Fatalf("root directory: %v %v", a, e)
 	}
 	eio := func(name string, e syscall.Errno) {
 		t.Helper()
 		if e != syscall.EIO {
-			t.Errorf("%s: %v, oczekiwano EIO", name, e)
+			t.Errorf("%s: %v, expected EIO", name, e)
 		}
 	}
 	_, e := f.Getattr("/x")
@@ -259,7 +259,7 @@ func TestProbeFS(t *testing.T) {
 	f.Release(1)
 	f.Unavailable(syscall.ENXIO)
 	if f.SyncAll() == nil {
-		t.Error("SyncAll na wolumenie próbnym zgłosił sukces")
+		t.Error("SyncAll on the probe volume reported success")
 	}
 	if f.BRoot() != "/" {
 		t.Error("BRoot")

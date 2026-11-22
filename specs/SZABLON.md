@@ -1,63 +1,63 @@
-# SNNN — Tytuł zmiany
+# SNNN — Change title
 
-- **Status:** szkic | zamknięta | dostarczona | porzucona
-- **Data:** RRRR-MM-DD
-- **Powiązane:** SNNN, …
+- **Status:** draft | closed | delivered | abandoned
+- **Date:** YYYY-MM-DD
+- **Related:** SNNN, …
 
 ## 1. TL;DR
 
-Jedno do trzech zdań: co się zmienia, dla kogo i jak potwierdzimy wynik.
+One to three sentences: what changes, for whom, and how we will confirm the result.
 
 ## 2. Abstract
 
-Od 3 do 15 zdań w akapitach:
+3 to 15 sentences in paragraphs:
 
-- stan obecny,
-- luka lub problem,
-- uzasadnienie zmiany,
-- historia decyzji.
+- current state,
+- gap or problem,
+- rationale for the change,
+- decision history.
 
 ## 3. Objective
 
-- **Cele:** co musi zostać osiągnięte.
-- **Poza zakresem:** czego świadomie nie robimy.
-- **Kryteria sukcesu:** warunki, które oznaczają, że zmiana jest skończona.
+- **Goals:** what must be achieved.
+- **Out of scope:** what we deliberately do not do.
+- **Success criteria:** conditions that mean the change is finished.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artifact | Kind | State |
 | --- | --- | --- |
-| `ścieżka/plik` | kod / dane / dokument / zewnętrzne | istnieje / do utworzenia / do zmiany / do usunięcia / [DO USTALENIA] |
+| `path/file` | code / data / document / external | exists / to create / to change / to delete / [TBD] |
 
 ## 5. Functional Domain Changes
 
-- stan obecny i stan docelowy,
-- reguły i przypadki brzegowe,
-- odporność na awarie usług zewnętrznych i współbieżność,
-- wpływ na dane.
+- current state and target state,
+- rules and edge cases,
+- resilience to external service failures and concurrency,
+- impact on data.
 
 ## 6. Critical Path
 
-Najkrótsza sekwencja kroków od stanu obecnego do działającej zmiany. Na końcu warunek ukończenia.
+The shortest sequence of steps from the current state to a working change. Ends with the completion condition.
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek zaliczenia | Weryfikacja | Blokuje |
+| # | Gate | Pass condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | … | warunek logiczny lub liczbowy | test / polecenie | commit / publikację |
+| G1 | … | logical or numeric condition | test / command | commit / release |
 
-Uwzględnij też bramki negatywne, czyli to, czego system nie może robić.
+Also include negative gates, i.e. what the system must not do.
 
 ## 8. Expected Outcome
 
-- efekt bezpośredni,
-- efekt mierzalny,
-- skutki uboczne,
-- możliwość wycofania zmiany.
+- direct effect,
+- measurable effect,
+- side effects,
+- ability to roll back the change.
 
 ## 9. Additional Information
 
-- odrzucone alternatywy,
-- dług techniczny,
-- zależności zewnętrzne,
-- źródła i otwarte pytania.
+- rejected alternatives,
+- technical debt,
+- external dependencies,
+- sources and open questions.

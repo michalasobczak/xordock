@@ -1,26 +1,26 @@
-# Model zagrożeń xordocka
+# xordock threat model
 
-Stan na 2026-11-22 (S004). Źródło: S004 §5.7 i §9, analizy `docs/bezpieczenstwo/2026-11-22-runda-S001.md` i `2026-11-22-runda-S004.md`.
+State as of 2026-11-22 (S004). Source: S004 §5.7 and §9, analyses `docs/security/2026-11-22-round-S001.md` and `2026-11-22-round-S004.md`.
 
-## Co chronimy
+## What we protect
 
-Treść plików i ich nazwy (nazwy i struktura katalogów są w indeksie dzielonym XOR).
+File contents and their names (names and directory structure are in the XOR-split index).
 
-## Przed kim
+## Against whom
 
-| Przeciwnik | Chroniony? |
+| Adversary | Protected? |
 |---|---|
-| Ma pełną kopię udziału A (SSD, kopia Time Machine, skradziony dysk), także wiele historycznych kopii | **Tak**, praktycznie (CSPRNG macOS `SecRandomCopyBytes`). To **nie** jest gwarancja informacyjno-teoretyczna ani odporność na P = NP (G-09, CG-14). |
-| Ma tylko kartę roboczą albo tylko kartę zapasową (udział B) | **Tak.** B to same maski. |
-| Ma A i którąkolwiek kartę B (roboczą albo zapasową) | **Nie** (poza zakresem). Karta zapasowa to kopia tego samego udziału B, nie osobny klucz (B-02); karta robocza trzyma też maski migawek (R4-06). |
-| Kontroluje Maca, gdy sejf jest zamontowany (malware, administrator) | **Nie** (poza zakresem, I-05). Inne konta lokalne nie mają dostępu do wolumenu (macFUSE bez `allow_other`). |
-| Modyfikuje jeden udział, żeby zmienić treść | **Nie wykrywamy** (F-03, R-04). Przypadkowe uszkodzenia wykrywamy. |
-| Ma SSD wyłączonego Maca z FileVault | Chronią go FileVault i xordock. Bez FileVault pliki tymczasowe i cache aplikacji mogą zawierać jawne fragmenty (FR-25). |
+| Has a full copy of share A (SSD, Time Machine copy, stolen disk), including many historical copies | **Yes**, practically (macOS CSPRNG `SecRandomCopyBytes`). This is **not** an information-theoretic guarantee nor resistance to P = NP (G-09, CG-14). |
+| Has only the working card or only the spare card (share B) | **Yes.** B is masks only. |
+| Has A and any B card (working or spare) | **No** (out of scope). The spare card is a copy of the same share B, not a separate key (B-02); the working card also holds the snapshot masks (R4-06). |
+| Controls the Mac while the vault is mounted (malware, administrator) | **No** (out of scope, I-05). Other local accounts have no access to the volume (macFUSE without `allow_other`). |
+| Modifies one share to change the content | **Not detected** (F-03, R-04). Accidental corruption is detected. |
+| Has the SSD of a powered-off Mac with FileVault | Protected by FileVault and xordock. Without FileVault, temporary files and application caches may contain plaintext fragments (FR-25). |
 
-## Czego nie ukrywamy
+## What we do not hide
 
-Rozmiarów i liczby obiektów, czasów zapisu, nazwy sejfu (także w punkcie montowania), liczby i dat punktów odzyskiwania, faktu używania xordocka (D-04, F-05).
+Sizes and number of objects, write times, the vault name (including in the mount point), the number and dates of recovery points, the fact that xordock is used (D-04, F-05).
 
-## Granice systemu (FR-25, IT-03)
+## System boundaries (FR-25, IT-03)
 
-Jawne dane opuszczają sejf w czasie pracy: RAM aplikacji i rozszerzenia FSKit macFUSE, pliki tymczasowe i autozapis aplikacji, miniatury QuickLook, indeks Spotlight, crash dumpy, Time Machine i iCloud dla kopii zrobionych przez aplikacje, historia ostatnich dokumentów (I-04, I-06). Szczegóły i zalecenia: `docs/uzytkowanie.md`.
+Plaintext leaves the vault while working: RAM of applications and of the macFUSE FSKit extension, temporary files and application autosave, QuickLook thumbnails, the Spotlight index, crash dumps, Time Machine and iCloud for copies made by applications, recent documents history (I-04, I-06). Details and recommendations: `docs/usage.md`.

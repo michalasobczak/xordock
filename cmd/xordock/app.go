@@ -1,7 +1,7 @@
 package main
 
-// Polecenia zapytań dla aplikacji macOS (S007 §5): wynik JSON na stdout.
-// Akcje zostają tekstowe; błąd to kod ≠ 0 i komunikat na stderr.
+// Query commands for the macOS app (S007 §5): JSON output on stdout.
+// Actions stay textual; an error is a non-zero exit code and a message on stderr.
 
 import (
 	"encoding/json"
@@ -33,7 +33,7 @@ type jsonBackup struct {
 	Media    string `json:"media"`
 }
 
-// jsonCopy: kopia udziału A w iCloud Drive (S008).
+// jsonCopy: the share A copy in iCloud Drive (S008).
 type jsonCopy struct {
 	Name      string `json:"name"`
 	ID        string `json:"id"`
@@ -42,7 +42,7 @@ type jsonCopy struct {
 	LastPoint string `json:"lastPoint,omitempty"`
 }
 
-// readCopy opisuje kopię A z jej nagłówka i rekordów punktów (bez odczytu udziałów).
+// readCopy describes an A copy from its header and point records (without reading shares).
 func readCopy(dir string) (jsonCopy, bool) {
 	id, _, err := vault.ReadCopyID(dir)
 	if err != nil {
@@ -92,10 +92,10 @@ func printJSON(v any) error {
 
 func vaultsDir() string { return filepath.Join(home(), "Library", "Application Support", "xordock") }
 
-// volumeOf zwraca /Volumes/<nazwa> dla katalogu sejfu na karcie.
+// volumeOf returns /Volumes/<name> for a vault directory on a card.
 func volumeOf(root string) string { return filepath.Dir(filepath.Dir(root)) }
 
-// collectVaults buduje stan wszystkich sejfów z katalogu udziałów A.
+// collectVaults builds the state of all vaults from the share A directory.
 func collectVaults(dir, volumes string) []jsonVault {
 	out := []jsonVault{}
 	ms, _ := filepath.Glob(filepath.Join(dir, "*", "xordock.json"))
@@ -146,8 +146,8 @@ func collectVaults(dir, volumes string) []jsonVault {
 	return out
 }
 
-// orphanCopies: kopie A w iCloud, dla których na tym Macu nie ma udziału A
-// (np. po utracie SSD): punkt wyjścia do odzyskiwania w aplikacji.
+// orphanCopies: A copies in iCloud with no share A on this Mac
+// (e.g. after losing the SSD): the starting point for recovery in the app.
 func orphanCopies(dir string, vs []jsonVault) []jsonCopy {
 	have := map[string]bool{}
 	for _, v := range vs {
@@ -171,7 +171,7 @@ func fileVaultOn() bool {
 
 func cmdVaults(args []string) error {
 	fl := flag.NewFlagSet("vaults", flag.ExitOnError)
-	fl.Bool("json", true, "wynik JSON (jedyny format)")
+	fl.Bool("json", true, "JSON output (the only format)")
 	fl.Parse(args)
 	vs := collectVaults(vaultsDir(), "/Volumes")
 	return printJSON(jsonState{FileVault: fileVaultOn(), Masks: split.Kind(split.CSPRNG{}), ICloud: iCloudAvailable(),
@@ -196,8 +196,8 @@ type jsonVolume struct {
 	Vaults   []jsonCardRef `json:"vaults"`
 }
 
-// wholeDisk: "/dev/disk3s1" → "disk3". Wstępna ochrona w UI przed wyborem
-// woluminu z dysku systemowego; pełna kontrola fizycznego nośnika to S006.
+// wholeDisk: "/dev/disk3s1" → "disk3". Basic UI protection against choosing
+// a volume on the system disk; full physical-medium checks are S006.
 func wholeDisk(dev string) string {
 	d := strings.TrimPrefix(dev, "/dev/")
 	if !strings.HasPrefix(d, "disk") {
@@ -221,8 +221,8 @@ func cstr(b []int8) string {
 	return string(n)
 }
 
-// collectVolumes zwraca zamontowane woluminy w katalogu volumes (punkty
-// montowania, bez dowiązań i bez wolumenów samego xordocka).
+// collectVolumes returns the mounted volumes in the volumes directory (mount
+// points only, no symlinks and no xordock's own volumes).
 func collectVolumes(volumes string) []jsonVolume {
 	out := []jsonVolume{}
 	var root syscall.Statfs_t
@@ -254,7 +254,7 @@ func collectVolumes(volumes string) []jsonVolume {
 
 func cmdVolumes(args []string) error {
 	fl := flag.NewFlagSet("volumes", flag.ExitOnError)
-	fl.Bool("json", true, "wynik JSON (jedyny format)")
+	fl.Bool("json", true, "JSON output (the only format)")
 	fl.Parse(args)
 	return printJSON(collectVolumes("/Volumes"))
 }
@@ -277,9 +277,9 @@ func cmdPoints(args []string) error {
 	fl := flag.NewFlagSet("points", flag.ExitOnError)
 	var c common
 	c.bind(fl)
-	spareVol := fl.String("spare", "", "wolumen karty zapasowej (przy --from-icloud także roboczej)")
-	fromICloud := fl.Bool("from-icloud", false, "udział A z kopii w iCloud Drive")
-	fl.Bool("json", true, "wynik JSON (jedyny format)")
+	spareVol := fl.String("spare", "", "spare card volume (with --from-icloud, also the working card)")
+	fromICloud := fl.Bool("from-icloud", false, "share A from the copy in iCloud Drive")
+	fl.Bool("json", true, "JSON output (the only format)")
 	fl.Parse(args)
 	spare, err := spareRoot(*spareVol, c.name)
 	if err != nil {

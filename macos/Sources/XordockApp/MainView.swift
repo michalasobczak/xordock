@@ -3,7 +3,7 @@ import SwiftUI
 import XordockCore
 import XordockUI
 
-/// Co odzyskujemy: nazwa i identyfikator sejfu, skąd udział A.
+/// What we recover: vault name and ID, where share A comes from.
 struct RecoveryTarget: Hashable {
     var name: String
     var id: String
@@ -34,7 +34,7 @@ struct MainView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $model.selection) {
-                Section("Sejfy") {
+                Section("Vaults") {
                     ForEach(model.state.vaults) { v in
                         HStack {
                             Image(systemName: v.mounted ? "lock.open.fill" : "lock.fill").foregroundStyle(.secondary)
@@ -46,7 +46,7 @@ struct MainView: View {
                     }
                 }
                 if !model.state.orphanCopies.isEmpty {
-                    Section("Kopie A w iCloud bez SSD") {
+                    Section("Share A copies in iCloud without SSD") {
                         ForEach(model.state.orphanCopies) { c in
                             Label(c.name, systemImage: "icloud").tag(orphanTag + c.name)
                         }
@@ -57,7 +57,7 @@ struct MainView: View {
                 Button {
                     sheet = .newVault
                 } label: {
-                    Label("Nowy sejf…", systemImage: "plus")
+                    Label("New vault…", systemImage: "plus")
                 }
                 .padding(8)
                 .disabled(model.busy != nil)
@@ -73,8 +73,8 @@ struct MainView: View {
                     Dashboard(vault: v, icloud: model.state.icloud, masks: model.state.masks, busy: model.busy != nil,
                               actions: actions(for: v))
                 } else {
-                    ContentUnavailableView("Brak sejfów", systemImage: "lock.shield",
-                                           description: Text("Załóż pierwszy sejf przyciskiem „Nowy sejf…”."))
+                    ContentUnavailableView("No vaults", systemImage: "lock.shield",
+                                           description: Text("Create your first vault with the \"New vault…\" button."))
                 }
                 Spacer(minLength: 0)
                 TourBar()
@@ -102,7 +102,7 @@ struct MainView: View {
         }
         .toolbar {
             ToolbarItem {
-                Button { Task { await model.refresh() } } label: { Label("Odśwież", systemImage: "arrow.clockwise") }
+                Button { Task { await model.refresh() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
             }
         }
     }
@@ -110,7 +110,7 @@ struct MainView: View {
     private func checkPending() {
         guard sheet == nil else { return }
         if model.pendingRequirements {
-            // Braki wyprzedzają pytanie o samouczek (S011).
+            // Missing requirements take precedence over the tutorial prompt (S011).
             model.pendingRequirements = false
             sheet = .requirements
         } else if model.pendingStartPrompt {
@@ -124,7 +124,7 @@ struct MainView: View {
 
     private func startTour() {
         sheet = nil
-        // Dymek pokazujemy po zamknięciu arkusza, żeby popover miał kotwicę.
+        // Show the tip after the sheet closes so the popover has an anchor.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.tour.start() }
     }
 
@@ -152,10 +152,10 @@ struct MainView: View {
 
     @ViewBuilder private var banners: some View {
         if model.cliMissing {
-            Banner(text: "Nie znaleziono programu xordock. Zbuduj aplikację skryptem scripts/build-app.sh.", style: .error)
+            Banner(text: "The xordock program was not found. Build the app with scripts/build-app.sh.", style: .error)
         }
         if !model.state.fileVault {
-            Banner(text: "FileVault wyłączony: aplikacje mogą zostawiać jawne kopie plików na SSD.", style: .warning)
+            Banner(text: "FileVault is off: apps may leave plaintext copies of files on the SSD.", style: .warning)
         }
         if let b = model.busy {
             HStack { ProgressView().controlSize(.small); Text(b) }.padding(8)
@@ -183,7 +183,7 @@ struct Banner: View {
                 Image(systemName: style == .info ? "checkmark.circle" : "exclamationmark.triangle")
                 Text(text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 if details != nil {
-                    Button(expanded ? "Ukryj" : "Szczegóły") { expanded.toggle() }.buttonStyle(.link)
+                    Button(expanded ? "Hide" : "Details") { expanded.toggle() }.buttonStyle(.link)
                 }
                 if let onClose {
                     Button { onClose() } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
@@ -206,7 +206,7 @@ struct Banner: View {
     }
 }
 
-/// Kopia A w iCloud, dla której na tym Macu nie ma udziału A (S008).
+/// Copy of A in iCloud for which this Mac has no share A (S008).
 struct OrphanDetail: View {
     let copy: CopyInfo
     @Binding var sheet: SheetKind?
@@ -214,10 +214,10 @@ struct OrphanDetail: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Sejf", value: copy.name)
-                LabeledContent("Ostatni punkt", value: copy.lastPoint?.formatted(date: .abbreviated, time: .shortened) ?? "brak")
-                Text("Na tym Macu nie ma udziału A tego sejfu (np. po wymianie lub utracie SSD). Dane odzyskasz z tej kopii i karty zapasowej albo roboczej.")
-                Button("Odzyskiwanie…") {
+                LabeledContent("Vault", value: copy.name)
+                LabeledContent("Last point", value: copy.lastPoint?.formatted(date: .abbreviated, time: .shortened) ?? "none")
+                Text("This Mac doesn't have share A of this vault (e.g. after replacing or losing the SSD). You can recover the data from this copy and the spare or working card.")
+                Button("Recovery…") {
                     sheet = .recovery(RecoveryTarget(name: copy.name, id: copy.id, fromICloud: true, mounted: false, hasACopy: true))
                 }
                 .keyboardShortcut(.defaultAction)
@@ -227,7 +227,7 @@ struct OrphanDetail: View {
     }
 }
 
-/// Wybór nośnika z listy: nazwa, system plików, wolne miejsce, sejfy na nim.
+/// Drive picker: name, file system, free space, vaults on it.
 struct VolumePicker: View {
     let title: String
     let volumes: [VolumeInfo]
@@ -235,7 +235,7 @@ struct VolumePicker: View {
 
     var body: some View {
         Picker(title, selection: $selection) {
-            Text("— wybierz —").tag(VolumeInfo?.none)
+            Text("— choose —").tag(VolumeInfo?.none)
             ForEach(volumes) { v in
                 Text(describe(v)).tag(VolumeInfo?.some(v))
             }
@@ -243,8 +243,8 @@ struct VolumePicker: View {
     }
 
     private func describe(_ v: VolumeInfo) -> String {
-        var s = "\(v.name) (\(v.fs.uppercased()), wolne \(formatBytes(v.free)))"
-        if !v.vaults.isEmpty { s += " · sejfy: " + v.vaults.map(\.name).joined(separator: ", ") }
+        var s = "\(v.name) (\(v.fs.uppercased()), free \(formatBytes(v.free)))"
+        if !v.vaults.isEmpty { s += " · vaults: " + v.vaults.map(\.name).joined(separator: ", ") }
         return s
     }
 }

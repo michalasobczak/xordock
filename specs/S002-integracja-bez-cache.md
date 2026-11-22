@@ -1,74 +1,74 @@
-# S002 — Katalog w Finderze przez FSKit
+# S002 — Folder in Finder via FSKit
 
-- **Status:** porzucona (2026-11-22). Własne rozszerzenie FSKit wymaga płatnego Apple Developer Program; właściciel wybrał S004 (macFUSE z backendem FSKit, bez własnego uprawnienia). Projekt `macos/` usunięty przed commitem. G1 i G2 sprawdzono w S004 (E2E, analiza rundy S004).
-- **Data:** 2026-11-22
-- **Powiązane:** S001 (F-01, F-02 w `docs/bezpieczenstwo/2026-11-22-runda-S001.md`), S003
+- **Status:** abandoned (2026-11-22). A custom FSKit extension requires the paid Apple Developer Program; the owner chose S004 (macFUSE with the FSKit backend, without a custom entitlement). The `macos/` project was deleted before commit. G1 and G2 were checked in S004 (E2E, S004 round analysis).
+- **Date:** 2026-11-22
+- **Related:** S001 (F-01, F-02 in `docs/security/2026-11-22-round-S001.md`), S003
 
 ## 1. TL;DR
 
-Sejf jest widoczny w Finderze jako zwykły wolumen dzięki natywnemu rozszerzeniu systemu plików macOS (FSKit), bez lokalnego serwera sieciowego i bez plików cache z jawną treścią na SSD. Potwierdzenie: wszystkie bramki S001 przechodzą przez nowy wolumen, a test E2E nie znajduje treści testowej poza RAM i udziałami.
+The vault is visible in Finder as an ordinary volume thanks to a native macOS file system extension (FSKit), with no local network server and no cache files with plaintext content on the SSD. Confirmation: all S001 gates pass through the new volume, and the E2E test finds no test content outside RAM and the shares.
 
 ## 2. Abstract
 
-Prototyp S001 montował sejf przez lokalny WebDAV. Analiza bezpieczeństwa wykazała, że agent WebDAV macOS zapisuje treść plików na SSD (F-01), a token dostępu widać w tablicy montowań (F-02).
+The S001 prototype mounted the vault via local WebDAV. The security analysis showed that the macOS WebDAV agent writes file contents to the SSD (F-01), and the access token is visible in the mount table (F-02).
 
-Historia decyzji (2026-11-22): rozważono NFS loopback (cache klienta w RAM). Prototyp serwera NFSv3 dotarł do próby montowania i został przerwany. Właściciel odrzucił NFS i WebDAV: integracja ma być natywna. Kod WebDAV i NFS usunięto, więc `xordock mount` nie istnieje. Wcześniej FSKit blokował brak Xcode; właściciel zainstalował Xcode 27.2.
+Decision history (2026-11-22): NFS loopback (client cache in RAM) was considered. The NFSv3 server prototype reached the mount attempt and was stopped. The owner rejected NFS and WebDAV: the integration must be native. The WebDAV and NFS code was removed, so `xordock mount` does not exist. Earlier, FSKit was blocked by the lack of Xcode; the owner installed Xcode 27.2.
 
-Zostawiono stałe numery plików w indeksie sejfu (`Entry.Ino`) i operacje po numerze (`ByIno`, `SetFileIno`, `Create`, `Remove`, `RenameReplacing`), bo FSKit identyfikuje elementy stałymi identyfikatorami.
+Stable file numbers in the vault index (`Entry.Ino`) and number-based operations (`ByIno`, `SetFileIno`, `Create`, `Remove`, `RenameReplacing`) were kept, because FSKit identifies items by stable identifiers.
 
 ## 3. Objective
 
-- **Cele:** rozszerzenie FSKit (moduł systemu plików) montujące sejf, aplikacja-kontener, która je dostarcza, obsługa karty jak w S001 (SC-02, FR-18).
-- **Poza zakresem:** zmiana formatu udziałów; akcja „Chroń kartą SD” w Finderze (S003).
-- **Kryteria sukcesu:** bramki CG-01–CG-11 z S001 przez wolumen FSKit; G1 i G2 poniżej; F-01 i F-02 zamknięte w następnej analizie bezpieczeństwa.
+- **Goals:** an FSKit extension (file system module) that mounts the vault, a container app that ships it, card handling as in S001 (SC-02, FR-18).
+- **Out of scope:** changing the share format; the "Protect with SD card" action in Finder (S003).
+- **Success criteria:** gates CG-01–CG-11 from S001 through the FSKit volume; G1 and G2 below; F-01 and F-02 closed in the next security analysis.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Kind | State |
 | --- | --- | --- |
-| Xcode 27.2, macOS SDK 27.2 z FSKit | zewnętrzne | istnieje |
-| Certyfikat Apple Development (Personal Team `F5AKYMU3G6`) + pośredni Apple WWDR G3 | zewnętrzne | istnieje (2026-11-22), podpis działa |
-| Uprawnienie `com.apple.developer.fskit.fsmodule` | zewnętrzne | **blokada**: Personal Team go nie obsługuje; wymagany płatny Apple Developer Program |
-| `macos/Xordock.xcodeproj`, `macos/Xordock/XordockApp.swift` (aplikacja-kontener), `macos/XordockFS/` (moduł „hello” tylko do odczytu, Info.plist z `FSSupportsPathURLs`, entitlements) | kod | istnieje, kompiluje się; nie da się podpisać bez profilu |
-| `internal/vault` (silnik sejfu w Go) | kod | istnieje |
-| Most Go → Swift (`go build -buildmode=c-archive`) | kod | do utworzenia (rekomendacja, zob. §9) |
-| Projekt Xcode: aplikacja + rozszerzenie FSKit (Swift) | kod | do utworzenia |
-| Włączenie rozszerzenia przez użytkownika (Ustawienia systemowe) | organizacja | do wykonania przez właściciela |
+| Xcode 27.2, macOS SDK 27.2 with FSKit | external | exists |
+| Apple Development certificate (Personal Team `F5AKYMU3G6`) + Apple WWDR G3 intermediate | external | exists (2026-11-22), signing works |
+| Entitlement `com.apple.developer.fskit.fsmodule` | external | **blocker**: Personal Team does not support it; the paid Apple Developer Program is required |
+| `macos/Xordock.xcodeproj`, `macos/Xordock/XordockApp.swift` (container app), `macos/XordockFS/` (read-only "hello" module, Info.plist with `FSSupportsPathURLs`, entitlements) | code | exists, compiles; cannot be signed without a profile |
+| `internal/vault` (vault engine in Go) | code | exists |
+| Go → Swift bridge (`go build -buildmode=c-archive`) | code | to be created (recommendation, see §9) |
+| Xcode project: app + FSKit extension (Swift) | code | to be created |
+| Enabling the extension by the user (System Settings) | organization | to be done by the owner |
 
 ## 5. Functional Domain Changes
 
-[DO USTALENIA] na sesji. Do rozstrzygnięcia:
+[TO BE DECIDED] in a session. To resolve:
 
-- jak użytkownik montuje sejf (aplikacja w pasku menu, `mount -F`, automatycznie po włożeniu karty);
-- gdzie w FSKit buforować zapisy i kiedy zatwierdzać (zamknięcie pliku, `fsync`, bezczynność), żeby zachować FR-10 i FR-11;
-- zachowanie przy wyjęciu karty w trakcie pracy.
+- how the user mounts the vault (menu bar app, `mount -F`, automatically when the card is inserted);
+- where in FSKit to buffer writes and when to commit (file close, `fsync`, idle), to preserve FR-10 and FR-11;
+- behavior when the card is removed during work.
 
-### Wynik kroku 1 (2026-11-22)
+### Step 1 result (2026-11-22)
 
-`xcodebuild -allowProvisioningUpdates`: *„Personal development teams … do not support the FSKit Module capability.”* Bez płatnego konta Apple nie wyda profilu z uprawnieniem FSKit, a macOS nie uruchomi rozszerzenia bez niego (obejście wymaga wyłączenia SIP/AMFI, co odrzucamy: obniża bezpieczeństwo całego Maca, E4).
+`xcodebuild -allowProvisioningUpdates`: *"Personal development teams … do not support the FSKit Module capability."* Without a paid account Apple will not issue a profile with the FSKit entitlement, and macOS will not run the extension without it (a workaround requires disabling SIP/AMFI, which we reject: it lowers the security of the whole Mac, E4).
 
 ## 6. Critical Path
 
-1. Tożsamość do podpisu i potwierdzenie, że rozszerzenie FSKit z uprawnieniem się ładuje (minimalny moduł „hello”).
-2. Most do silnika Go i operacje tylko do odczytu.
-3. Zapis, zmiana nazwy, usuwanie, zatwierdzanie.
-4. Karta: nadzór i odmontowanie.
-5. Testy E2E bramek S001, G1, G2; analiza bezpieczeństwa.
+1. Signing identity and confirmation that an FSKit extension with the entitlement loads (minimal "hello" module).
+2. Bridge to the Go engine and read-only operations.
+3. Write, rename, delete, commit.
+4. Card: supervision and unmount.
+5. E2E tests of the S001 gates, G1, G2; security analysis.
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek zaliczenia | Weryfikacja | Blokuje |
+| # | Gate | Pass condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | Brak jawnej treści na SSD poza RAM | 0 trafień markera w plikach otwartych przez procesy systemowe (`lsof`) oraz w `/private/tmp` i `/private/var/folders` w trakcie i po pracy | E2E | wydanie |
-| G2 | Brak dostępu przez sieć lub gniazdo | rozszerzenie nie otwiera żadnego gniazda nasłuchującego | `lsof -i` | wydanie |
-| G3 | Bramki CG-01–CG-11 z S001 | zielone | `go test ./...` + E2E | wydanie |
+| G1 | No plaintext content on the SSD outside RAM | 0 marker hits in files opened by system processes (`lsof`) and in `/private/tmp` and `/private/var/folders` during and after work | E2E | release |
+| G2 | No access via network or socket | the extension opens no listening socket | `lsof -i` | release |
+| G3 | Gates CG-01–CG-11 from S001 | green | `go test ./...` + E2E | release |
 
 ## 8. Expected Outcome
 
-Sejf montowany natywnie, F-01 i F-02 zamknięte.
+The vault is mounted natively, F-01 and F-02 closed.
 
 ## 9. Additional Information
 
-- **Odrzucone:** WebDAV (F-01, F-02), NFS loopback (decyzja właściciela), macFUSE (rozszerzenie jądra, obniżenie zabezpieczeń).
-- **Rekomendacja mostu:** silnik sejfu zostaje w Go i jest linkowany do rozszerzenia jako biblioteka C. Przepisanie silnika na Swift dałoby dwie implementacje formatu (M2: bez duplikacji). Osobny proces pomocniczy przez XPC to dodatkowa granica do zabezpieczenia.
-- **Otwarte pytanie:** czy właściciel dołącza do Apple Developer Program (99 USD/rok)? Bez tego S002 jest zablokowana.
+- **Rejected:** WebDAV (F-01, F-02), NFS loopback (owner's decision), macFUSE (kernel extension, lowered security).
+- **Bridge recommendation:** the vault engine stays in Go and is linked into the extension as a C library. Rewriting the engine in Swift would produce two implementations of the format (M2: no duplication). A separate helper process over XPC is an additional boundary to secure.
+- **Open question:** will the owner join the Apple Developer Program (USD 99/year)? Without it S002 is blocked.

@@ -1,144 +1,153 @@
 # CHANGELOG
 
-Chronologiczny zapis tego, co faktycznie dostarczono. Wpisy są uporządkowane według dat, najnowsze na górze.
+A chronological record of what was actually delivered. Entries are ordered by date, newest first.
 
 ## 2026-11-22
 
-### S011: sprawdzanie wymagań przy starcie
+### S012: English version of the project
 
-- Aplikacja przy starcie sprawdza:
+- All user-facing texts are now English: the macOS app (dashboard, tutorial, requirements, sheets, menu), the CLI (usage, output, errors, logs, `doctor`, mask description) and the build script. No bilingual output.
+- Code comments (Go, C, Swift), test texts, README, CHANGELOG, MANIFEST, `docs/`, all specs and the spec template translated. `CLAUDE.md`: artifacts in English, conversation with the owner in Polish.
+- `docs/` file names in English: `docs/usage.md`, `docs/security/2026-11-22-round-S00x.md`, `docs/ui/*-light.png`/`*-dark.png`; all links updated. Spec file names unchanged.
+- App dates in `en_US`, English plurals. Restore default name `<name>-recovered`; probe volume `xordock-probe`; default vault name `sejf` kept for compatibility.
+- After `recover … restore` the CLI now tells you to delete every copy of the old share A (SSD, iCloud Drive incl. Recently Deleted, Time Machine).
+- Guard tests: Go `TestSourcesAreEnglish` (string literals and comments, plus the C bridge), Swift `sourcesAreEnglishOnly`, `healthChangesPlural`. Swift tests: 19.
+
+### S011: requirements check at startup
+
+- At startup the app checks:
   - macOS 26+;
   - macFUSE 5.5+;
-  - włączone rozszerzenie systemu plików macFUSE;
-  - FileVault i iCloud Drive (zalecane).
+  - the macFUSE file system extension is enabled;
+  - FileVault and iCloud Drive (recommended).
 
-  Przy brakach pokazuje arkusz „Wymagania” z przyciskami „Pobierz macFUSE” / „Otwórz Ustawienia systemowe”. Gdy wszystko gra, nic nie pokazuje. Arkusz jest też w menu kłódki i w Ustawieniach.
-- Rozszerzenie FSKit sprawdzane próbnym montowaniem pustego wolumenu bez sejfu (ok. 1 s). Wynik zapamiętany dla wersji macFUSE, a każde udane montowanie sejfu go potwierdza.
-- CLI: nowe `xordock doctor [--probe-mount] [--json]`. Biblioteka macFUSE ładowana dopiero przy montowaniu (`dlopen`), więc bez macFUSE CLI działa (status, backup, odzyskiwanie) i jasno odmawia tylko montowania.
-- Testy: Go `TestProbeFS`, `TestDoctor`; Swift `requirementsRules` (razem 17). E2E: próba i montowanie sejfu na pendrivie z dynamicznie ładowaną biblioteką.
+  If anything is missing it shows a "Requirements" sheet with "Download macFUSE" / "Open System Settings" buttons. When everything is fine it shows nothing. The sheet is also available in the padlock menu and in Settings.
+- The FSKit extension is checked with a trial mount of an empty volume without a vault (approx. 1 s). The result is remembered per macFUSE version, and every successful vault mount confirms it.
+- CLI: new `xordock doctor [--probe-mount] [--json]`. The macFUSE library is loaded only when mounting (`dlopen`), so without macFUSE the CLI works (status, backup, recovery) and clearly refuses only mounting.
+- Tests: Go `TestProbeFS`, `TestDoctor`; Swift `requirementsRules` (17 in total). E2E: probe and mount of a vault on a USB stick with the dynamically loaded library.
 
-### S010: samouczek
+### S010: tutorial
 
-- Przy każdym starcie aplikacja pyta „Uruchomić samouczek?” i oferuje pole „Nie pytaj przy starcie”. Ustawienie zmienia się w Ustawieniach (⌘, albo menu kłódki), skąd można też uruchomić samouczek w dowolnej chwili.
-- Wprowadzenie: 6 ekranów z przyciskiem „Dalej”:
-  - problem;
-  - dwie połówki;
-  - A na Macu, B na karcie;
-  - kopie (karta zapasowa, iCloud);
-  - pięć zasad;
-  - uczciwe granice ochrony.
-- Prowadzenie po prawdziwym sejfie: dymki przy przyciskach, pasek kroków na dole okna, wskazówki w arkuszach. Kroki „załóż sejf”, „otwórz”, „odmontuj” i „zrób backup” kończą się same, gdy wykonasz akcję. Samouczek niczego nie robi za użytkownika.
-- Testy Swift: 3 nowe (maszyna stanów, długość tekstów, brak poleceń w kodzie samouczka), razem 16. Rendery ekranów w `docs/ui/`.
+- On every start the app asks "Start the tutorial?" and offers a "Don't ask at launch" checkbox. The setting can be changed in Settings (⌘, or the padlock menu), where the tutorial can also be started at any time.
+- Introduction: 6 screens with a "Next" button:
+  - the problem;
+  - two halves;
+  - A on the Mac, B on the card;
+  - copies (spare card, iCloud);
+  - five rules;
+  - honest limits of the protection.
+- Guidance on a real vault: callouts next to buttons, a step bar at the bottom of the window, hints in sheets. The steps "create a vault", "open", "unmount" and "back up" complete on their own when you perform the action. The tutorial never does anything on the user's behalf.
+- Swift tests: 3 new (state machine, text length, no commands in the tutorial code), 16 in total. Screen renders in `docs/ui/`.
 
-### S009: przejrzysty pulpit sejfu w aplikacji
+### S009: clear vault dashboard in the app
 
-- Widok sejfu to pulpit zamiast formularza:
-  - jeden status z jednym zaleceniem: „Wszystko w porządku / Otwórz sejf”, „Brak kopii A w iCloud / Zrób backup”, „Podłącz kartę roboczą”…;
-  - cztery kafelki nośników (Ten Mac/A, karta robocza/B, karta zapasowa/kopia B, iCloud/kopia A) z ✓/⚠︎ i datą;
-  - rząd akcji drugorzędnych; szczegóły techniczne zwinięte.
-- Kropki stanu na liście sejfów, krótkie komunikaty po akcjach (pełne wyjście pod „Szczegóły”), polskie daty.
-- Reguły w `XordockCore/Health.swift` (7 stanów z priorytetami), widok w nowej bibliotece `XordockUI`, narzędzie `XordockPreview` renderujące pulpit do PNG (przykłady w `docs/ui/`).
-- Testy Swift: 3 nowe (priorytety statusów, kafelki, długość tekstów), razem 13.
+- The vault view is a dashboard instead of a form:
+  - one status with one recommendation: "All good / Open vault", "No iCloud copy of A / Back up now", "Connect the working card"…;
+  - four media tiles (This Mac/A, working card/B, spare card/copy of B, iCloud/copy of A) with ✓/⚠︎ and a date;
+  - a row of secondary actions; technical details collapsed.
+- Status dots in the vault list, short messages after actions (full output under "Details"), Polish dates.
+- Rules in `XordockCore/Health.swift` (7 states with priorities), the view in the new `XordockUI` library, the `XordockPreview` tool rendering the dashboard to PNG (examples in `docs/ui/`).
+- Swift tests: 3 new (status priorities, tiles, text length), 13 in total.
 
-### S008: kopia udziału A w iCloud Drive
+### S008: share A copy in iCloud Drive
 
-- Backup zapisuje jeden punkt odzyskiwania w dwóch miejscach: udziały B migawki na kartę zapasową i udziały A tej samej migawki do `iCloud Drive/xordock/<nazwa>`. Utrata SSD przestaje oznaczać utratę danych.
-- Silnik:
-  - `BackupPair`, uogólnione kopiowanie strony (`copySide`), `PruneACopy`;
-  - `OpenRecovery` z kopii A, z kartą zapasową albo roboczą;
+- Backup writes one recovery point in two places: the snapshot's B shares to the spare card and the same snapshot's A shares to `iCloud Drive/xordock/<name>`. Losing the SSD no longer means losing data.
+- Engine:
+  - `BackupPair`, generalized side copying (`copySide`), `PruneACopy`;
+  - `OpenRecovery` from the A copy, with the spare or working card;
   - `ReadCopyID`;
-  - cel kopii A nie może leżeć w katalogu udziału ani na karcie.
+  - the A copy target must not lie in the share directory or on the card.
 - CLI:
-  - `backup` robi kopię A domyślnie (`--no-icloud` ją pomija), `backup prune` przycina oba cele;
+  - `backup` makes the A copy by default (`--no-icloud` skips it), `backup prune` prunes both targets;
   - `recover --from-icloud`, `points --from-icloud`;
-  - `status` i `vaults` pokazują kopię A, a `orphanCopies` wylicza kopie bez udziału A na Macu.
-- Aplikacja:
-  - jednorazowe ostrzeżenie o koncie iCloud (2FA, Advanced Data Protection);
-  - stan kopii A i ostrzeżenie, gdy jej brak;
-  - odzyskiwanie z iCloud bez SSD.
-- Testy:
-  - Go: 6 nowych (utrata SSD, brak B i jawnej treści w kopii, odmowa miejsc na karcie, przerwanie na 3 etapach, retencja obu kopii, stan CLI);
-  - Swift: 1 nowy, razem 10.
-- E2E: pendrive'y USB + prawdziwy iCloud Drive. Plik odzyskany bajt w bajt po usunięciu katalogu A, zarówno z kartą zapasową, jak i z roboczą. Sejf testowy usunięty.
-- Analiza: `docs/bezpieczenstwo/2026-11-22-runda-S008.md`. R8-01 (modelowe): kopia A w iCloud + dowolna karta B = komplet, więc po zgubieniu karty usuwa się wszystkie kopie starego A.
-- `docs/recovery.md`: tabela „co utracone → skąd odzyskujesz”, procedura po utracie SSD, ostrzeżenie przed eksportem do Biurka i Dokumentów synchronizowanych z iCloud.
+  - `status` and `vaults` show the A copy, and `orphanCopies` lists copies with no A share on the Mac.
+- App:
+  - one-time warning about the iCloud account (2FA, Advanced Data Protection);
+  - A copy state and a warning when it is missing;
+  - recovery from iCloud without the SSD.
+- Tests:
+  - Go: 6 new (SSD loss, no B and no plaintext in the copy, refusal of locations on the card, interruption at 3 stages, retention of both copies, CLI state);
+  - Swift: 1 new, 10 in total.
+- E2E: USB sticks + real iCloud Drive. File recovered byte for byte after deleting the A directory, with both the spare card and the working card. Test vault deleted.
+- Analysis: `docs/security/2026-11-22-round-S008.md`. R8-01 (by design): A copy in iCloud + any B card = a complete set, so after losing a card all copies of the old A are deleted.
+- `docs/recovery.md`: "what is lost → where you recover from" table, procedure after SSD loss, warning against exporting to Desktop and Documents synced with iCloud.
 
-### S007: aplikacja macOS (pasek menu + okno)
+### S007: macOS app (menu bar + window)
 
-- `macos/`: aplikacja SwiftUI z ikoną w pasku menu i oknem:
-  - lista sejfów ze stanem kart, montowania i backupu;
-  - kreator nowego sejfu z wyborem nośnika z listy;
-  - montowanie i odmontowanie, „Pokaż w Finderze”;
-  - „Backup teraz” (odmontowanie za zgodą, migawka, backup na wybraną kartę zapasową);
-  - odzyskiwanie: lista punktów, weryfikacja, jawny eksport, odtworzenie na nową kartę;
-  - `fsck` i log montowania.
-- Silnik zostaje jeden: aplikacja uruchamia dołączony CLI przez `Process` z tablicą argumentów, bez powłoki. Proces montowania loguje do `~/Library/Logs/xordock/<nazwa>.log` i przeżywa zamknięcie aplikacji.
-- CLI: polecenia `vaults`, `volumes` i `points` z wynikiem JSON. `vault.Peek` odczytuje stan także zamontowanego sejfu, bez blokady i bez zmian w udziałach.
-- `scripts/build-app.sh`: składa `build/xordock.app` z CLI w `Contents/Resources`, podpis ad hoc.
-- Bezpieczeństwo:
-  - walidacja nazwy sejfu w CLI i UI (R7-01): wcześniej `--name ../x` wyprowadzało ścieżki A, B i punktu montowania poza ich katalogi;
-  - aplikacja w pakiecie nie przyjmuje podmiany CLI przez `XORDOCK_CLI` (R7-03).
-- Testy:
+- `macos/`: SwiftUI app with a menu bar icon and a window:
+  - vault list with card, mount and backup state;
+  - new vault wizard with media chosen from a list;
+  - mount and unmount, "Show in Finder";
+  - "Back up now" (unmount with consent, snapshot, backup to the chosen spare card);
+  - recovery: list of points, verification, plaintext export, restore to a new card;
+  - `fsck` and the mount log.
+- The engine stays single: the app runs the bundled CLI via `Process` with an argument array, no shell. The mount process logs to `~/Library/Logs/xordock/<name>.log` and survives the app being closed.
+- CLI: `vaults`, `volumes` and `points` commands with JSON output. `vault.Peek` reads the state of a mounted vault too, without a lock and without changes to the shares.
+- `scripts/build-app.sh`: assembles `build/xordock.app` with the CLI in `Contents/Resources`, ad hoc signature.
+- Security:
+  - vault name validation in the CLI and UI (R7-01): previously `--name ../x` led the A, B and mount point paths outside their directories;
+  - the bundled app does not accept a CLI substitution via `XORDOCK_CLI` (R7-03).
+- Tests:
   - Go: `TestPeekWhileOpen`, `TestCollectVaults`, `TestWholeDisk`, `TestValidName`;
-  - Swift: 9 testów, w tym kontrakt JSON, reguła 7 dni, argumenty poleceń, zakaz powłoki i dostępu do udziałów w kodzie UI, prawdziwe CLI.
-- S006 (A i B na różnych fizycznych nośnikach) zapisana jako szkic z decyzjami właściciela. Luka potwierdzona: obraz `.dmg` na SSD przechodził jako karta.
-- Analiza: `docs/bezpieczenstwo/2026-11-22-runda-S007.md`.
+  - Swift: 9 tests, including the JSON contract, the 7-day rule, command arguments, a ban on the shell and on share access in UI code, the real CLI.
+- S006 (A and B on different physical media) recorded as a draft with the owner's decisions. Gap confirmed: a `.dmg` image on the SSD passed as a card.
+- Analysis: `docs/security/2026-11-22-round-S007.md`.
 
-### S005: poprawki z analizy bezpieczeństwa rundy S004
+### S005: fixes from the S004 round security analysis
 
-- `backup prune` sprawdza oba udziały każdego obiektu najnowszego punktu, zanim usunie cokolwiek starszego (R4-01). Test `TestPruneRefusesIncompleteNewest`.
-- Indeks wczytany z udziałów jest walidowany (ścieżki kanoniczne, katalog nadrzędny), a eksport odmawia ścieżek spoza katalogu docelowego (R4-02). Test `TestIndexPathsValidated`.
-- Analiza: `docs/bezpieczenstwo/2026-11-22-runda-S004.md`. F-01 i F-02 z rundy S001 zamknięte. Otwarte R4-03 (średnie, złagodzone): błąd zatwierdzenia przy `close` nie dociera do aplikacji przez FSKit.
+- `backup prune` checks both shares of every object of the newest point before deleting anything older (R4-01). Test `TestPruneRefusesIncompleteNewest`.
+- The index read from the shares is validated (canonical paths, parent directory), and export refuses paths outside the target directory (R4-02). Test `TestIndexPathsValidated`.
+- Analysis: `docs/security/2026-11-22-round-S004.md`. F-01 and F-02 from round S001 closed. Open R4-03 (medium, mitigated): a commit error on `close` does not reach the application through FSKit.
 
-### S004: katalog w Finderze przez macFUSE/FSKit, migawki, backup i odzyskiwanie
+### S004: folder in Finder via macFUSE/FSKit, snapshots, backup and recovery
 
-- Specyfikacja właściciela wpisana jako S004. Rdzeń zostaje w Go (decyzja właściciela, odstępstwo od ADR-001), decyzje A-01–A-12 w S004 §9. S001 zastąpiona, S002 porzucona; niezacommitowany projekt `macos/` z własnym modułem FSKit usunięty.
-- `internal/split`: maski z `SecRandomCopyBytes` (cgo, kontrola kodu wyniku), opis „ochrona praktyczna, bez gwarancji informacyjno-teoretycznej”; deterministyczne źródło TEST_ONLY tylko w testach.
+- The owner's spec recorded as S004. The core stays in Go (owner's decision, deviation from ADR-001), decisions A-01–A-12 in S004 §9. S001 superseded, S002 abandoned; the uncommitted `macos/` project with a custom FSKit module removed.
+- `internal/split`: masks from `SecRandomCopyBytes` (cgo, result code checked), description "practical protection, no information-theoretic guarantee"; deterministic TEST_ONLY source in tests only.
 - `internal/vault`:
-  - Migawki w indeksie dzielonym XOR (`CreateSnapshot`, `Snapshots`, `DeleteSnapshot`, `SnapshotView`, `Changes`). GC respektuje migawki i wstrzymuje się, gdy indeks migawki jest nieczytelny.
-  - Backup na kartę zapasową (rola `backup` w nagłówku): przypięcie, kopia brakujących udziałów B, weryfikacja, punkt READY. Sprawdzanie miejsca przed zmianą, `PruneBackup`.
-  - Odzyskiwanie (`OpenRecovery`, `Verify`, `View`), `ExportTo`, `CopyInto` (nowy sejf, nowe maski). `FindCards`, `fsck` obejmuje migawki. Karta zapasowa odrzucana jako robocza.
-- `internal/fusefs`: system plików nad silnikiem: bufory zapisu w RAM, spill pełnych bloków powyżej 64 MiB, commit przy flush/fsync/release, obcinanie, rename (EXCL; SWAP → ENOTSUP), stan niedostępny po wyjęciu karty z czyszczeniem buforów.
-- `internal/fusemount`: most cgo do libfuse3 z macFUSE (`backend=fskit`), nadzór karty co 1 s z wymuszonym odmontowaniem, wykrycie nieudanego montowania. `chmod`/`chown` bez skutku (A-06).
-- CLI: `mount`, `unmount`, `status`, `snapshot create|list|rm`, `backup [prune]`, `recover list|verify|export|restore`; karty rozpoznawane po identyfikatorze sejfu i roli.
-- Testy: 20 nowych, razem 44 plus `TestPerf` (migawki, GC, backup z awariami na 3 etapach, brak miejsca, retencja, odzyskiwanie, CG-09, brak jawnej treści na karcie zapasowej, adapter: model losowych zapisów, spill, katalogi, obcinanie, wyjęcie karty, usunięcie otwartego pliku; źródło masek TEST_ONLY i błąd generatora). Dwa z nich (S005) dochodzą w osobnym wpisie wyżej.
-- E2E (macOS 27.0, macFUSE 5.5.0, karta SD HFS+, obrazy dysku jako karta zapasowa i nowa karta):
-  - montowanie w Finderze, mkdir, zapis i `cmp` 5 MB i 30 MiB, dopisywanie, rename między katalogami, 30 małych plików, usuwanie, `truncate`;
-  - brak markera i nazw w A, B, na karcie zapasowej, w nowym sejfie, `/private/tmp` i `/private/var/folders`;
-  - symulowane wyjęcie karty: odmontowanie po ≤ 1,25 s;
-  - `fsck`, migawka, backup, zmiana po backupie, `recover verify/export/restore` bez karty roboczej: dokładne bajty punktu, bez późniejszej zmiany;
-  - sejfy testowe usunięte z karty.
-- Poprawione w trakcie E2E: `chmod` zwracający ENOTSUP blokował `mkdir`/`create` przez FSKit; CLI zgłaszało montowanie i odmontowanie mimo nieudanego montowania albo awaryjnego odmontowania.
-- Dokumentacja: `docs/format-v1.md`, `docs/recovery.md`, aktualizacja `docs/threat-model.md`, `docs/uzytkowanie.md`, `MANIFEST.md` (stack).
+  - Snapshots in the XOR-split index (`CreateSnapshot`, `Snapshots`, `DeleteSnapshot`, `SnapshotView`, `Changes`). GC respects snapshots and pauses when a snapshot index is unreadable.
+  - Backup to a spare card (`backup` role in the header): pinning, copying missing B shares, verification, READY point. Free space check before any change, `PruneBackup`.
+  - Recovery (`OpenRecovery`, `Verify`, `View`), `ExportTo`, `CopyInto` (new vault, new masks). `FindCards`, `fsck` covers snapshots. A spare card is rejected as a working card.
+- `internal/fusefs`: file system on top of the engine: write buffers in RAM, spill of full blocks above 64 MiB, commit on flush/fsync/release, truncate, rename (EXCL; SWAP → ENOTSUP), unavailable state after card removal with buffers wiped.
+- `internal/fusemount`: cgo bridge to libfuse3 from macFUSE (`backend=fskit`), card supervision every 1 s with forced unmount, detection of a failed mount. `chmod`/`chown` have no effect (A-06).
+- CLI: `mount`, `unmount`, `status`, `snapshot create|list|rm`, `backup [prune]`, `recover list|verify|export|restore`; cards recognized by vault identifier and role.
+- Tests: 20 new, 44 in total plus `TestPerf` (snapshots, GC, backup with failures at 3 stages, out of space, retention, recovery, CG-09, no plaintext on the spare card, adapter: random-write model, spill, directories, truncate, card removal, deleting an open file; TEST_ONLY mask source and generator failure). Two of them (S005) are added in a separate entry above.
+- E2E (macOS 27.0, macFUSE 5.5.0, HFS+ SD card, disk images as the spare card and the new card):
+  - mount in Finder, mkdir, write and `cmp` of 5 MB and 30 MiB, append, rename between directories, 30 small files, delete, `truncate`;
+  - no marker and no names in A, B, on the spare card, in the new vault, `/private/tmp` and `/private/var/folders`;
+  - simulated card removal: unmount after ≤ 1.25 s;
+  - `fsck`, snapshot, backup, change after backup, `recover verify/export/restore` without the working card: exact bytes of the point, without the later change;
+  - test vaults deleted from the card.
+- Fixed during E2E: `chmod` returning ENOTSUP blocked `mkdir`/`create` through FSKit; the CLI reported mount and unmount despite a failed mount or an emergency unmount.
+- Documentation: `docs/format-v1.md`, `docs/recovery.md`, update of `docs/threat-model.md`, `docs/usage.md`, `MANIFEST.md` (stack).
 
-### S002 krok 1: próba FSKit
+### S002 step 1: FSKit trial
 
-- `macos/`: projekt Xcode (aplikacja-kontener `pl.indatify.xordock` + rozszerzenie FSKit `pl.indatify.xordock.fs`), moduł „hello” tylko do odczytu. Kompiluje się (Xcode 27.2, macOS SDK 27.2).
-- Podpis: certyfikat Apple Development i pośredni WWDR G3 zainstalowane przez właściciela.
-- **Blokada:** Personal Team nie obsługuje uprawnienia FSKit Module, więc Xcode nie tworzy profilu. Do dalszej pracy potrzebny płatny Apple Developer Program.
+- `macos/`: Xcode project (container app `pl.indatify.xordock` + FSKit extension `pl.indatify.xordock.fs`), read-only "hello" module. It compiles (Xcode 27.2, macOS SDK 27.2).
+- Signing: Apple Development certificate and the intermediate WWDR G3 installed by the owner.
+- **Blocker:** Personal Team does not support the FSKit Module entitlement, so Xcode does not create a profile. Further work requires the paid Apple Developer Program.
 
-### S002 (przygotowanie): usunięcie WebDAV, kierunek FSKit
+### S002 (preparation): WebDAV removal, FSKit direction
 
-- Właściciel odrzucił WebDAV i NFS; integracja z Finderem ma być natywna (FSKit). Usunięto `xordock mount`, `internal/davfs`, `internal/mount` i zależność `golang.org/x/net`. Projekt nie ma zależności zewnętrznych.
-- F-01 i F-02 z analizy rundy S001 przestały dotyczyć kodu (usunięta integracja). Wrócą do sprawdzenia przy S002.
-- Próbny serwer NFSv3 napisany i porzucony przed pierwszym udanym montowaniem (nie trafił do repozytorium).
-- `internal/vault`: stałe numery plików w indeksie (`Entry.Ino`, katalog główny = 1, uzupełniane w starych indeksach), operacje po numerze i z semantyką systemu plików: `ByIno`, `SetFileIno`, `SetModTime`, `Create`, `Remove` (unlink/rmdir), `RenameReplacing`. Testy: `TestInodesStable`, `TestReplaceAndRemoveSemantics`, `TestEnsureInosForOldIndex`.
-- S002 przepisana na FSKit. Stanowisko: Xcode 27.2 z FSKit SDK; brak tożsamości do podpisywania.
+- The owner rejected WebDAV and NFS; Finder integration is to be native (FSKit). Removed `xordock mount`, `internal/davfs`, `internal/mount` and the `golang.org/x/net` dependency. The project has no external dependencies.
+- F-01 and F-02 from the round S001 analysis no longer apply to the code (integration removed). They will be rechecked in S002.
+- A trial NFSv3 server was written and abandoned before the first successful mount (it did not make it into the repository).
+- `internal/vault`: stable file numbers in the index (`Entry.Ino`, root directory = 1, filled in for old indexes), operations by number and with file system semantics: `ByIno`, `SetFileIno`, `SetModTime`, `Create`, `Remove` (unlink/rmdir), `RenameReplacing`. Tests: `TestInodesStable`, `TestReplaceAndRemoveSemantics`, `TestEnsureInosForOldIndex`.
+- S002 rewritten for FSKit. Setup: Xcode 27.2 with the FSKit SDK; no signing identity.
 
-### S001: prototyp xordock Secure Folders
+### S001: xordock Secure Folders prototype
 
-- Specyfikacja S001 (szkic właściciela, nazwa robocza OpenTrust → xordock). Decyzje Q-01–Q-06 i FR-05 według rekomendacji, na polecenie właściciela (S001 §9.8).
-- Go, moduł `xordock`, jedna zależność `golang.org/x/net/webdav`.
-- `internal/split`: podział XOR, źródło masek CSPRNG z jawnym opisem braku gwarancji P = NP (CG-10).
-- `internal/vault`: format udziałów v1 (magic, strona, sejf, obiekt, długość, SHA-256 własnego udziału), bloki 1 MiB, każdy zapis to nowy obiekt z nową maską, indeks z nazwami plików dzielony XOR. Commit: obiekty (fsync) → bariera F_FULLFSYNC → superblok A → superblok B. Odzyskiwanie: dokończenie albo wycofanie przerwanego commitu, inne stany to jawny błąd. GC starych wersji (najpierw B). `fsck` bez składania treści. Blokada `flock`.
-- `internal/davfs`: system plików WebDAV nad sejfem: zapisy w dowolnych miejscach, dziury, spill pełnych bloków przy zapisie sekwencyjnym, zatwierdzanie przy zamknięciu.
-- `internal/mount`: serwer na 127.0.0.1 z losowym tokenem w ścieżce, odrzucanie obcego `Host` i `Origin`, `mount_webdav`, nadzór nad kartą co 1 s (stan błędu + wymuszone odmontowanie).
-- CLI `xordock init|mount|fsck|export`. `mount` wymaga FileVault.
-- Testy: 27 testów jednostkowych i protokołu (plus `TestPerf` uruchamiany ręcznie), w tym 13 scenariuszy awarii na każdym etapie zapisu. E2E na prawdziwej karcie SD (HFS+) i SSD: zapis/odczyt 20 MB i 3 MB, rename, delete, 50 małych plików, ponowne montowanie, symulowane wyjęcie karty, blokada przy równoczesnym `fsck`, eksport, brak markera treści i nazwy pliku w obu udziałach.
-- Wydajność: pierwsza wersja (blok 64 KiB) 1,4 MiB/s zapisu, po zmianie na 1 MiB i utrwalaniu katalogów raz na commit 10,4 MiB/s. Odczyt ~600 MiB/s.
-- Analiza bezpieczeństwa rundy: `docs/bezpieczenstwo/2026-11-22-runda-S001.md`. Bez regresji krytycznych. F-01 (cache agenta WebDAV na SSD, wysokie) otwarte → S002. F-02 (token widoczny w `mount`) zaakceptowane w prototypie.
-- Dokumentacja: `docs/threat-model.md`, `docs/uzytkowanie.md`. Szkice S002 (integracja bez cache) i S003 (ochrona katalogu z Findera, zgłoszenie właściciela).
+- Spec S001 (owner's draft, working name OpenTrust → xordock). Decisions Q-01–Q-06 and FR-05 per the recommendations, at the owner's instruction (S001 §9.8).
+- Go, module `xordock`, a single dependency `golang.org/x/net/webdav`.
+- `internal/split`: XOR split, CSPRNG mask source with an explicit statement of no P = NP guarantee (CG-10).
+- `internal/vault`: share format v1 (magic, side, vault, object, length, SHA-256 of its own share), 1 MiB blocks, every write is a new object with a new mask, index with file names split with XOR. Commit: objects (fsync) → F_FULLFSYNC barrier → superblock A → superblock B. Recovery: completing or rolling back an interrupted commit, other states are an explicit error. GC of old versions (B first). `fsck` without reassembling content. `flock` lock.
+- `internal/davfs`: WebDAV file system on top of the vault: writes at arbitrary offsets, holes, spill of full blocks on sequential writes, commit on close.
+- `internal/mount`: server on 127.0.0.1 with a random token in the path, rejection of foreign `Host` and `Origin`, `mount_webdav`, card supervision every 1 s (error state + forced unmount).
+- CLI `xordock init|mount|fsck|export`. `mount` requires FileVault.
+- Tests: 27 unit and protocol tests (plus `TestPerf` run manually), including 13 failure scenarios at every write stage. E2E on a real SD card (HFS+) and SSD: write/read of 20 MB and 3 MB, rename, delete, 50 small files, remount, simulated card removal, lock during a concurrent `fsck`, export, no content marker and no file name in either share.
+- Performance: first version (64 KiB block) 1.4 MiB/s write, after switching to 1 MiB and syncing directories once per commit 10.4 MiB/s. Read ~600 MiB/s.
+- Round security analysis: `docs/security/2026-11-22-round-S001.md`. No critical regressions. F-01 (WebDAV agent cache on the SSD, high) open → S002. F-02 (token visible in `mount`) accepted for the prototype.
+- Documentation: `docs/threat-model.md`, `docs/usage.md`. Drafts S002 (integration without cache) and S003 (protecting a folder from Finder, owner's request).
 
-### Start projektu
+### Project start
 
-- `git init` (gałąź `main`), artefakty CDD (`CLAUDE.md`, `README.md`, `CHANGELOG.md`, `MANIFEST.md`, `specs/SZABLON.md`), `.gitignore`. Pusty katalog `tests/` usunięty w S001: testy Go leżą przy pakietach.
+- `git init` (branch `main`), CDD artifacts (`CLAUDE.md`, `README.md`, `CHANGELOG.md`, `MANIFEST.md`, `specs/SZABLON.md`), `.gitignore`. Empty `tests/` directory removed in S001: Go tests live next to their packages.

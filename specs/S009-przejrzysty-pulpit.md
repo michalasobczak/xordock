@@ -1,105 +1,105 @@
-# S009 — Przejrzysty pulpit sejfu
+# S009 — Clear vault dashboard
 
-- **Status:** dostarczona (G1–G5); akceptacja wyglądu przez właściciela w działającej aplikacji
-- **Data:** 2026-11-22
-- **Powiązane:** S007, S008
+- **Status:** delivered (G1–G5); appearance acceptance by the owner in the running app
+- **Date:** 2026-11-22
+- **Related:** S007, S008
 
 ## 1. TL;DR
 
-Widok sejfu w aplikacji zmienia się z formularza pełnego tekstu w pulpit:
+The vault view in the app changes from a text-heavy form into a dashboard:
 
-- jeden duży status z jednym głównym przyciskiem („co teraz zrobić”);
-- cztery kafelki nośników (SSD/A, karta robocza/B, karta zapasowa/kopia B, iCloud/kopia A) z ✓/⚠︎ i datą;
-- szczegóły techniczne zwinięte.
+- one large status with one main button ("what to do now");
+- four media tiles (SSD/A, working card/B, spare card/B copy, iCloud/A copy) with ✓/⚠︎ and a date;
+- technical details collapsed.
 
-Wynik potwierdzają testy reguł statusu i rendery widoku do PNG.
+The result is confirmed by tests of the status rules and by renders of the view to PNG.
 
 ## 2. Abstract
 
-Właściciel po pierwszych testach aplikacji (S007, S008) ocenił okno jako mało przejrzyste:
+After the first tests of the app (S007, S008), the owner judged the window as unclear:
 
-- za dużo tekstu;
-- nie wiadomo, co zrobić dalej;
-- stan nośników jest niejasny.
+- too much text;
+- it is not clear what to do next;
+- the state of the media is unclear.
 
-Wybrał układ „pulpit z kafelkami” (2026-11-22).
+He chose the "dashboard with tiles" layout (2026-11-22).
 
 ## 3. Objective
 
-- **Cele:**
-  - P-01 **Status z jednym zaleceniem.** Pierwsza pasująca reguła (kolejność priorytetu):
-    1. błąd sejfu;
-    2. brak karty roboczej;
-    3. brak backupu;
-    4. backup starszy niż 7 dni;
-    5. brak kopii A w iCloud;
-    6. sejf otwarty;
-    7. wszystko w porządku.
+- **Goals:**
+  - P-01 **Status with a single recommendation.** The first matching rule (priority order):
+    1. vault error;
+    2. no working card;
+    3. no backup;
+    4. backup older than 7 days;
+    5. no A copy in iCloud;
+    6. vault open;
+    7. everything fine.
 
-    Każdy stan ma tytuł do 5 słów, jedno zdanie wyjaśnienia i najwyżej jeden przycisk główny.
-  - P-02 **Cztery kafelki:** nazwa nośnika, rola jednym słowem, stan ✓/⚠︎/–, data ostatniej kopii lub nazwa woluminu.
-  - P-03 **Akcje drugorzędne** w jednym rzędzie małych przycisków. „Więcej” mieści fsck, log i szczegóły.
-  - P-04 **Szczegóły techniczne** (ścieżki, maski, commit, migawki) w zwijanej sekcji, domyślnie zwiniętej.
-  - P-05 Na liście sejfów kropka koloru stanu zamiast opisu.
-  - P-06 Teksty bezpieczeństwa (CG-14, ADP, eksport jawny) zostają, ale w miejscu akcji, której dotyczą.
-- **Poza zakresem:** zmiany CLI i formatu, arkusze backupu i odzyskiwania (poza skróceniem tekstów).
-- **Kryteria sukcesu:** bramki z §7 i akceptacja właściciela.
+    Each state has a title of up to 5 words, one sentence of explanation and at most one main button.
+  - P-02 **Four tiles:** medium name, role in one word, state ✓/⚠︎/–, date of the last copy or volume name.
+  - P-03 **Secondary actions** in one row of small buttons. "More" holds fsck, log and details.
+  - P-04 **Technical details** (paths, masks, commit, snapshots) in a collapsible section, collapsed by default.
+  - P-05 In the vault list, a dot in the state's color instead of a description.
+  - P-06 Security texts (CG-14, ADP, plaintext export) stay, but next to the action they concern.
+- **Out of scope:** changes to the CLI and the format, the backup and recovery sheets (apart from shortening texts).
+- **Success criteria:** the gates from §7 and the owner's acceptance.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Type | State |
 | --- | --- | --- |
-| `macos/Sources/XordockCore/Health.swift` | kod: reguły statusu i kafelków | do utworzenia |
-| `macos/Sources/XordockUI/Dashboard.swift` | kod: widok pulpitu (biblioteka, renderowalna) | do utworzenia |
-| `macos/Sources/XordockPreview/main.swift` | narzędzie: render pulpitu do PNG dla przykładowych stanów | do utworzenia |
-| `macos/Sources/XordockApp/*` | kod | do zmiany |
+| `macos/Sources/XordockCore/Health.swift` | code: status and tile rules | to create |
+| `macos/Sources/XordockUI/Dashboard.swift` | code: dashboard view (library, renderable) | to create |
+| `macos/Sources/XordockPreview/main.swift` | tool: renders the dashboard to PNG for sample states | to create |
+| `macos/Sources/XordockApp/*` | code | to change |
 
 ## 5. Functional Domain Changes
 
-- Stan pulpitu liczy czysta funkcja `VaultHealth.evaluate(vault, icloud:)`. Widok nie zawiera logiki decyzyjnej.
-- Kafelek karty zapasowej pokazuje datę ostatniego punktu READY i informację, czy karta jest teraz podłączona.
-- Kafelek iCloud: „wyłączony”, gdy iCloud Drive niedostępny.
+- The dashboard state is computed by a pure function `VaultHealth.evaluate(vault, icloud:)`. The view contains no decision logic.
+- The spare card tile shows the date of the last READY point and whether the card is currently connected.
+- iCloud tile: "off" when iCloud Drive is unavailable.
 
 ## 6. Critical Path
 
-1. `Health.swift` z testami.
-2. `XordockUI` z pulpitem.
-3. Podpięcie w aplikacji.
-4. Rendery PNG i przegląd.
-5. Budowanie `.app`.
+1. `Health.swift` with tests.
+2. `XordockUI` with the dashboard.
+3. Wiring into the app.
+4. PNG renders and review.
+5. Building the `.app`.
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek | Weryfikacja | Blokuje |
+| # | Gate | Condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | Reguły | każdy z 7 stanów i priorytety | `swift test` | commit |
-| G2 | Kafelki | stany ✓/⚠︎/– dla kart podłączonych i niepodłączonych, iCloud wyłączony | `swift test` | commit |
-| G3 | Zwięzłość | tytuł ≤ 5 słów, wyjaśnienie ≤ 1 zdanie (≤ 120 znaków) dla każdego stanu | `swift test` | commit |
-| G4 | Wygląd | rendery PNG 4 stanów obejrzane: jasny i ciemny tryb, brak uciętych tekstów | przegląd | commit |
-| G5 | Bez regresji | testy S007/S008 zielone, G4/G5 S007 (bez powłoki, bez dostępu do udziałów) | `swift test` | commit |
+| G1 | Rules | each of the 7 states and the priorities | `swift test` | commit |
+| G2 | Tiles | states ✓/⚠︎/– for connected and disconnected cards, iCloud off | `swift test` | commit |
+| G3 | Brevity | title ≤ 5 words, explanation ≤ 1 sentence (≤ 120 characters) for every state | `swift test` | commit |
+| G4 | Appearance | PNG renders of 4 states reviewed: light and dark mode, no truncated texts | review | commit |
+| G5 | No regressions | S007/S008 tests green, S007 G4/G5 (no shell, no access to shares) | `swift test` | commit |
 
 ## 8. Expected Outcome
 
-Po otwarciu okna od razu widać, czy jest dobrze i co zrobić. Wycofanie: przywrócenie poprzedniego `VaultDetail`.
+On opening the window it is immediately clear whether things are fine and what to do. Rollback: restoring the previous `VaultDetail`.
 
 ## 9. Additional Information
 
-Brak dostępu do ekranu właściciela (uprawnienia macOS), więc wygląd sprawdzamy renderami `ImageRenderer`.
+No access to the owner's screen (macOS permissions), so the appearance is checked with `ImageRenderer` renders.
 
-## Realizacja (2026-11-22)
+## Implementation (2026-11-22)
 
-- `XordockCore/Health.swift`: `VaultHealth.evaluate` (7 stanów, priorytety P-01), `VaultInfo.tiles(icloud:)` (P-02), daty po polsku niezależnie od języka systemu.
-- `XordockUI` (nowa biblioteka):
-  - `Dashboard`: status z przyciskiem głównym, 4 kafelki, rząd akcji, zwinięte szczegóły;
+- `XordockCore/Health.swift`: `VaultHealth.evaluate` (7 states, P-01 priorities), `VaultInfo.tiles(icloud:)` (P-02), dates in Polish regardless of the system language.
+- `XordockUI` (new library):
+  - `Dashboard`: status with the main button, 4 tiles, action row, collapsed details;
   - `HealthDot`;
-  - własne style przycisków (czysty SwiftUI, renderowalne);
-  - akcja będąca przyciskiem głównym nie powtarza się w rzędzie.
-- Aplikacja:
-  - pulpit zastępuje formularz `VaultDetail`; kropki stanu na liście; menu w pasku pokazuje tytuł statusu;
-  - komunikaty po akcjach to jedno zdanie, a pełne wyjście CLI jest pod „Szczegóły”;
-  - krótsze banery.
-- `XordockPreview`: `swift run XordockPreview <katalog>` renderuje 4 stany × jasny/ciemny tryb do PNG. Przykłady w `docs/ui/`. To narzędzie deweloperskie, nie trafia do `.app`.
-- **Bramki:**
-  - G1–G3: testy `healthPriorities`, `tilesStates`, `healthTextsAreShort`;
-  - G4: rendery obejrzane (poprawiono dublowany przycisk „Otwórz sejf”, angielskie daty, wyrównanie kafelka „Ten Mac”);
-  - G5: 13 testów Swift zielonych, w tym zakaz powłoki i dostępu do udziałów, który obejmuje nowe źródła.
+  - custom button styles (pure SwiftUI, renderable);
+  - the action that is the main button is not repeated in the row.
+- App:
+  - the dashboard replaces the `VaultDetail` form; state dots in the list; the menu bar menu shows the status title;
+  - messages after actions are one sentence, and the full CLI output is under "Details";
+  - shorter banners.
+- `XordockPreview`: `swift run XordockPreview <directory>` renders 4 states × light/dark mode to PNG. Examples in `docs/ui/`. This is a developer tool; it does not go into the `.app`.
+- **Gates:**
+  - G1–G3: tests `healthPriorities`, `tilesStates`, `healthTextsAreShort`;
+  - G4: renders reviewed (fixed a duplicated "Open vault" button, English dates, alignment of the "This Mac" tile);
+  - G5: 13 Swift tests green, including the ban on the shell and on access to shares, which covers the new sources.

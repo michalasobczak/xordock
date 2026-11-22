@@ -1,56 +1,56 @@
-# S005 — Poprawki z analizy bezpieczeństwa rundy S004
+# S005 — Fixes from the S004 round security analysis
 
-- **Status:** dostarczona
-- **Data:** 2026-11-22
-- **Powiązane:** S004, `docs/bezpieczenstwo/2026-11-22-runda-S004.md` (R4-01, R4-02)
+- **Status:** delivered
+- **Date:** 2026-11-22
+- **Related:** S004, `docs/security/2026-11-22-round-S004.md` (R4-01, R4-02)
 
 ## 1. TL;DR
 
-Dwie luki znalezione w analizie po S004 zostały poprawione: `backup prune` nie usuwa starszych punktów, dopóki najnowszy nie jest kompletny, a indeks ze ścieżkami spoza drzewa jest odrzucany. Dowód: testy `TestPruneRefusesIncompleteNewest` i `TestIndexPathsValidated`.
+Two gaps found in the analysis after S004 were fixed: `backup prune` does not delete older points until the newest one is complete, and an index with paths outside the tree is rejected. Proof: tests `TestPruneRefusesIncompleteNewest` and `TestIndexPathsValidated`.
 
 ## 2. Abstract
 
-Po implementacji S004 przejrzano kod pod kątem regresji i luk. `PruneBackup` sprawdzał tylko, czy da się złożyć indeks najnowszego punktu, a potem usuwał starsze punkty i ich udziały. Gdyby któryś blok najnowszego punktu był uszkodzony, użytkownik straciłby jedyną dobrą kopię, wbrew B-04 i zakazowi „nie wolno automatycznie usuwać ostatniego backupu”.
+After implementing S004 the code was reviewed for regressions and gaps. `PruneBackup` only checked whether the index of the newest point could be assembled, and then deleted older points and their shares. If any block of the newest point were damaged, the user would lose the only good copy, contrary to B-04 and the rule "the last backup must not be deleted automatically".
 
-Indeks wczytany z udziałów nie był walidowany. Uszkodzony albo celowo podmieniony udział (plastyczność XOR, F-03) mógł zawierać ścieżkę z `..`, a `export` i `recover export` zapisałyby plik poza katalogiem docelowym. Integralność wobec przeciwnika jest poza zakresem MVP, ale zapis poza wskazanym katalogiem to szkoda dla hosta, a poprawka jest tania.
+The index loaded from the shares was not validated. A damaged or deliberately substituted share (XOR malleability, F-03) could contain a path with `..`, and `export` and `recover export` would write a file outside the target folder. Integrity against an adversary is out of scope for the MVP, but writing outside the specified folder is harm to the host, and the fix is cheap.
 
 ## 3. Objective
 
-- **Cele:** prune usuwa cokolwiek dopiero po sprawdzeniu obu udziałów każdego obiektu najnowszego punktu; indeks z niekanoniczną ścieżką albo wpisem bez katalogu nadrzędnego to `ErrCorrupt`; eksport odmawia ścieżki wychodzącej poza katalog.
-- **Poza zakresem:** uwierzytelnianie udziałów (F-03, osobna decyzja kryptograficzna).
-- **Kryteria sukcesu:** oba testy zielone, pełny `go test -race ./...` zielony.
+- **Goals:** prune deletes anything only after checking both shares of every object of the newest point; an index with a non-canonical path or an entry without a parent folder is `ErrCorrupt`; export refuses a path leading outside the folder.
+- **Out of scope:** share authentication (F-03, a separate cryptographic decision).
+- **Success criteria:** both tests green, full `go test -race ./...` green.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Kind | State |
 | --- | --- | --- |
-| `internal/vault/backup.go` (`PruneBackup`) | kod | zmieniony |
-| `internal/vault/vault.go` (`Index.validate`, `loadIndexFrom`) | kod | zmieniony |
-| `internal/vault/recovery.go` (`ExportTo`) | kod | zmieniony |
-| `internal/vault/backup_test.go` | test | zmieniony |
+| `internal/vault/backup.go` (`PruneBackup`) | code | changed |
+| `internal/vault/vault.go` (`Index.validate`, `loadIndexFrom`) | code | changed |
+| `internal/vault/recovery.go` (`ExportTo`) | code | changed |
+| `internal/vault/backup_test.go` | test | changed |
 
 ## 5. Functional Domain Changes
 
-- `PruneBackup`: przed usunięciem czegokolwiek dekoduje udział B (karta zapasowa) i A (SSD) każdego obiektu najnowszego punktu; błąd → nic nie jest usuwane.
-- `loadIndexFrom` wywołuje `Index.validate`: każda ścieżka równa `Clean(p)`, zaczyna się od `/`, ma katalog nadrzędny będący katalogiem.
-- `ExportTo` dodatkowo sprawdza, że ścieżka docelowa leży w katalogu eksportu (obrona w głąb).
-- Wpływ na dane: brak; poprawne indeksy zawsze spełniały te warunki (operacje używają `Clean`).
+- `PruneBackup`: before deleting anything it decodes share B (spare card) and A (SSD) of every object of the newest point; error → nothing is deleted.
+- `loadIndexFrom` calls `Index.validate`: every path equals `Clean(p)`, starts with `/`, and has a parent that is a folder.
+- `ExportTo` additionally checks that the target path lies within the export folder (defense in depth).
+- Impact on data: none; correct indexes always met these conditions (operations use `Clean`).
 
 ## 6. Critical Path
 
-Testy odtwarzające (czerwone) → poprawki → testy zielone → wpis w CHANGELOG.
+Reproducing tests (red) → fixes → tests green → CHANGELOG entry.
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek zaliczenia | Weryfikacja | Blokuje |
+| # | Gate | Pass condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | Prune nie traci jedynej dobrej kopii | przy uszkodzonym bloku najnowszego punktu prune zwraca błąd, oba punkty zostają | `TestPruneRefusesIncompleteNewest` | commit |
-| G2 | Brak ścieżek spoza drzewa | indeks z `..`, ścieżką względną, `//`, końcowym `/` albo bez rodzica odrzucony | `TestIndexPathsValidated` | commit |
+| G1 | Prune does not lose the only good copy | with a damaged block of the newest point, prune returns an error, both points remain | `TestPruneRefusesIncompleteNewest` | commit |
+| G2 | No paths outside the tree | an index with `..`, a relative path, `//`, a trailing `/` or without a parent is rejected | `TestIndexPathsValidated` | commit |
 
 ## 8. Expected Outcome
 
-Retencja jest bezpieczna także przy uszkodzonym nośniku; eksport nie wychodzi poza katalog docelowy. Wycofanie: rewert commitu (bez zmian formatu).
+Retention is safe even with a damaged medium; export does not go outside the target folder. Rollback: revert the commit (no format changes).
 
 ## 9. Additional Information
 
-Znalezione w analizie bezpieczeństwa rundy S004 (wymóg CLAUDE.md: analiza po każdej rundzie, znaleziska poprawiane jak zwykła zmiana).
+Found in the S004 round security analysis (CLAUDE.md requirement: analysis after every round, findings fixed like a regular change).

@@ -1,13 +1,13 @@
 import Foundation
 
-// Reguły pulpitu sejfu (S009): jeden status z jednym zaleceniem i cztery
-// kafelki nośników. Czyste funkcje, bez UI, testowane w XordockCoreTests.
+// Vault dashboard rules (S009): one status with one recommendation and four
+// drive tiles. Pure functions, no UI, tested in XordockCoreTests.
 
 public enum Level: Equatable, Sendable {
     case ok, warning, error, neutral
 }
 
-/// Główna akcja zalecana w danym stanie.
+/// Main action recommended in a given state.
 public enum PrimaryAction: Equatable, Sendable {
     case none, mount, showInFinder, backup, details
 }
@@ -19,42 +19,41 @@ public struct VaultHealth: Equatable, Sendable {
     public var action: PrimaryAction
     public var actionTitle: String?
 
-    /// Pierwsza pasująca reguła wg priorytetu S009 P-01.
+    /// First matching rule by S009 P-01 priority.
     public static func evaluate(_ v: VaultInfo, icloud: Bool, now: Date = Date()) -> VaultHealth {
         if let e = v.error {
-            return VaultHealth(level: .error, title: "Problem z sejfem",
-                               detail: String(e.prefix(110)), action: .details, actionTitle: "Szczegóły")
+            return VaultHealth(level: .error, title: "Vault problem",
+                               detail: String(e.prefix(110)), action: .details, actionTitle: "Details")
         }
         if v.card == nil {
-            return VaultHealth(level: .warning, title: "Podłącz kartę roboczą",
-                               detail: "Bez karty roboczej sejfu nie da się otworzyć.", action: .none, actionTitle: nil)
+            return VaultHealth(level: .warning, title: "Connect the working card",
+                               detail: "The vault can't be opened without the working card.", action: .none, actionTitle: nil)
         }
         if v.lastBackup == nil {
-            return VaultHealth(level: .warning, title: "Brak backupu",
-                               detail: "Utrata karty roboczej oznacza dziś utratę danych.", action: .backup, actionTitle: "Zrób backup")
+            return VaultHealth(level: .warning, title: "No backup",
+                               detail: "Losing the working card today means losing data.", action: .backup, actionTitle: "Back up now")
         }
         if v.backupDue {
-            return VaultHealth(level: .warning, title: "Backup starszy niż tydzień",
-                               detail: changes(v) ?? "Zrób nowy backup na kartę zapasową.", action: .backup, actionTitle: "Zrób backup")
+            return VaultHealth(level: .warning, title: "Backup older than a week",
+                               detail: changes(v) ?? "Make a new backup to the spare card.", action: .backup, actionTitle: "Back up now")
         }
         if icloud && !v.hasACopy {
-            return VaultHealth(level: .warning, title: "Brak kopii A w iCloud",
-                               detail: "Utrata SSD oznacza dziś utratę danych.", action: .backup, actionTitle: "Zrób backup")
+            return VaultHealth(level: .warning, title: "No iCloud copy of A",
+                               detail: "Losing the SSD today means losing data.", action: .backup, actionTitle: "Back up now")
         }
         if v.mounted {
-            return VaultHealth(level: .ok, title: "Sejf otwarty",
-                               detail: "Odmontuj przed wyjęciem karty.", action: .showInFinder, actionTitle: "Pokaż w Finderze")
+            return VaultHealth(level: .ok, title: "Vault open",
+                               detail: "Unmount before removing the card.", action: .showInFinder, actionTitle: "Show in Finder")
         }
-        return VaultHealth(level: .ok, title: "Wszystko w porządku",
-                           detail: changes(v) ?? "Kopie są aktualne.", action: .mount, actionTitle: "Otwórz sejf")
+        return VaultHealth(level: .ok, title: "All good",
+                           detail: changes(v) ?? "Backups are up to date.", action: .mount, actionTitle: "Open vault")
     }
 
     static func changes(_ v: VaultInfo) -> String? {
         switch v.changesSinceBackup {
         case 0: return nil
-        case 1: return "1 zmiana od ostatniego backupu."
-        case 2...4: return "\(v.changesSinceBackup) zmiany od ostatniego backupu."
-        default: return "\(v.changesSinceBackup) zmian od ostatniego backupu."
+        case 1: return "1 change since the last backup."
+        default: return "\(v.changesSinceBackup) changes since the last backup."
         }
     }
 }
@@ -62,11 +61,11 @@ public struct VaultHealth: Equatable, Sendable {
 public struct Tile: Equatable, Identifiable, Sendable {
     public enum Kind: String, Sendable { case ssd, card, spare, icloud }
     public var kind: Kind
-    public var title: String     // nośnik
-    public var role: String      // co na nim leży, jednym-dwoma słowami
+    public var title: String     // drive
+    public var role: String      // what it holds, in one or two words
     public var level: Level
-    public var status: String    // krótko: „podłączona”, „22 lis, 19:21”, „brak”
-    public var note: String?     // np. nazwa woluminu
+    public var status: String    // short: "connected", "Nov 22, 7:21 PM", "no backup"
+    public var note: String?     // e.g. volume name
     public var id: String { kind.rawValue }
     public var symbol: String {
         switch kind {
@@ -78,40 +77,40 @@ public struct Tile: Equatable, Identifiable, Sendable {
     }
 }
 
-/// Data po polsku niezależnie od języka systemu (cały interfejs jest po polsku).
+/// Date in English regardless of the system language (the whole UI is in English).
 public func shortDate(_ d: Date) -> String {
-    d.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: "pl_PL")))
+    d.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: "en_US")))
 }
 
 public extension VaultInfo {
-    /// Kafelki nośników (S009 P-02).
+    /// Drive tiles (S009 P-02).
     func tiles(icloud: Bool) -> [Tile] {
-        let ssd = Tile(kind: .ssd, title: "Ten Mac", role: "udział A", level: error == nil ? .ok : .error,
-                       status: error == nil ? "na miejscu" : "błąd", note: nil)
+        let ssd = Tile(kind: .ssd, title: "This Mac", role: "share A", level: error == nil ? .ok : .error,
+                       status: error == nil ? "in place" : "error", note: nil)
         let cardTile: Tile = {
             guard let vol = cardVolume else {
-                return Tile(kind: .card, title: "Karta robocza", role: "udział B", level: .warning, status: "niepodłączona", note: nil)
+                return Tile(kind: .card, title: "Working card", role: "share B", level: .warning, status: "not connected", note: nil)
             }
-            return Tile(kind: .card, title: "Karta robocza", role: "udział B", level: .ok,
-                        status: mounted ? "sejf otwarty" : "podłączona", note: (vol as NSString).lastPathComponent)
+            return Tile(kind: .card, title: "Working card", role: "share B", level: .ok,
+                        status: mounted ? "vault open" : "connected", note: (vol as NSString).lastPathComponent)
         }()
-        let spareNote = spares.first.map { "\(($0.volume as NSString).lastPathComponent) podłączona" }
+        let spareNote = spares.first.map { "\(($0.volume as NSString).lastPathComponent) connected" }
         let spare: Tile = {
             guard let b = lastBackup else {
-                return Tile(kind: .spare, title: "Karta zapasowa", role: "kopia B", level: .warning, status: "brak backupu", note: spareNote)
+                return Tile(kind: .spare, title: "Spare card", role: "copy of B", level: .warning, status: "no backup", note: spareNote)
             }
-            return Tile(kind: .spare, title: "Karta zapasowa", role: "kopia B", level: backupDue ? .warning : .ok,
+            return Tile(kind: .spare, title: "Spare card", role: "copy of B", level: backupDue ? .warning : .ok,
                         status: shortDate(b.time), note: spareNote)
         }()
         let cloud: Tile = {
             if !icloud {
-                return Tile(kind: .icloud, title: "iCloud Drive", role: "kopia A", level: .neutral, status: "wyłączony", note: nil)
+                return Tile(kind: .icloud, title: "iCloud Drive", role: "copy of A", level: .neutral, status: "off", note: nil)
             }
             guard let c = aCopy, c.points > 0 else {
-                return Tile(kind: .icloud, title: "iCloud Drive", role: "kopia A", level: .warning, status: "brak kopii", note: nil)
+                return Tile(kind: .icloud, title: "iCloud Drive", role: "copy of A", level: .warning, status: "no copy", note: nil)
             }
-            return Tile(kind: .icloud, title: "iCloud Drive", role: "kopia A", level: backupDue ? .warning : .ok,
-                        status: c.lastPoint.map(shortDate) ?? "jest", note: nil)
+            return Tile(kind: .icloud, title: "iCloud Drive", role: "copy of A", level: backupDue ? .warning : .ok,
+                        status: c.lastPoint.map(shortDate) ?? "present", note: nil)
         }()
         return [ssd, cardTile, spare, cloud]
     }

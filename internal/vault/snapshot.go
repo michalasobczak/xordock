@@ -9,19 +9,19 @@ import (
 	"xordock/internal/split"
 )
 
-// Migawki udziałów xordocka (S004 §5.4). Migawka to niezmienny wskaźnik na
-// zatwierdzony indeks: przypina jego obiekty A i B przed GC. Nie robi
-// migawki APFS i nie kopiuje jawnych danych (CG-06). Lista migawek leży
-// w indeksie, więc jest dzielona XOR i zatwierdzana jak każda zmiana.
+// xordock share snapshots (S004 §5.4). A snapshot is an immutable pointer to a
+// committed index: it pins its A and B objects against GC. It does not take
+// an APFS snapshot and does not copy plain data (CG-06). The snapshot list lives
+// in the index, so it is XOR-split and committed like any change.
 
 var (
-	ErrNoSnapshot = errors.New("nie ma takiej migawki")
-	ErrPinned     = errors.New("migawka jest przypięta przez punkt odzyskiwania na karcie zapasowej (najpierw: xordock backup prune)")
+	ErrNoSnapshot = errors.New("no such snapshot")
+	ErrPinned     = errors.New("snapshot is pinned by a recovery point on the spare card (first run: xordock backup prune)")
 )
 
-// PointRef wiąże migawkę z punktem odzyskiwania na karcie zapasowej.
-// Przypięcie zapisujemy przed kopiowaniem (Ready=false), a Ready=true po
-// zapisaniu punktu READY. Przypięcie bez punktu tylko wstrzymuje GC.
+// PointRef links a snapshot to a recovery point on the spare card.
+// We record the pin before copying (Ready=false), and Ready=true after
+// the READY point is written. A pin without a point only pauses GC.
 type PointRef struct {
 	Media string    `json:"m"`
 	Point string    `json:"p"`
@@ -31,8 +31,8 @@ type PointRef struct {
 
 type Snapshot struct {
 	ID     string     `json:"id"`
-	Seq    uint64     `json:"q"` // generacja (numer commitu)
-	Index  string     `json:"x"` // obiekt indeksu tej generacji
+	Seq    uint64     `json:"q"` // generation (commit number)
+	Index  string     `json:"x"` // index object of this generation
 	Time   time.Time  `json:"t"`
 	Points []PointRef `json:"p,omitempty"`
 }
@@ -46,7 +46,7 @@ func (ix *Index) snap(id string) (int, bool) {
 	return 0, false
 }
 
-// CreateSnapshot przypina bieżący zatwierdzony stan jako migawkę.
+// CreateSnapshot pins the current committed state as a snapshot.
 func (v *Vault) CreateSnapshot() (Snapshot, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -72,15 +72,15 @@ func (v *Vault) CreateSnapshot() (Snapshot, error) {
 	return s, nil
 }
 
-// Snapshots zwraca migawki od najstarszej.
+// Snapshots returns the snapshots from the oldest.
 func (v *Vault) Snapshots() []Snapshot {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	return v.idx.clone().Snaps
 }
 
-// DeleteSnapshot usuwa migawkę, jeśli nie przypina jej żaden punkt
-// odzyskiwania. Jej obiekty usuwa GC w tym samym commicie.
+// DeleteSnapshot deletes a snapshot if no recovery point pins
+// it. GC deletes its objects in the same commit.
 func (v *Vault) DeleteSnapshot(id string) error {
 	return v.Commit(func(ix *Index) error {
 		i, ok := ix.snap(id)
@@ -95,7 +95,7 @@ func (v *Vault) DeleteSnapshot(id string) error {
 	})
 }
 
-// SnapshotView daje odczyt plików z migawki (CG-07).
+// SnapshotView gives read access to files from a snapshot (CG-07).
 func (v *Vault) SnapshotView(id string) (*View, error) {
 	v.mu.Lock()
 	i, ok := v.idx.snap(id)
@@ -114,8 +114,8 @@ func (v *Vault) SnapshotView(id string) (*View, error) {
 	return &View{ix: ix, read: v.readShares}, nil
 }
 
-// Changes zwraca ścieżki, które różnią się między migawką a stanem bieżącym
-// (G-08: co przepadnie po utracie karty roboczej).
+// Changes returns the paths that differ between a snapshot and the current state
+// (G-08: what would be lost after losing the working card).
 func (v *Vault) Changes(id string) ([]string, error) {
 	old, err := v.SnapshotView(id)
 	if err != nil {
@@ -154,15 +154,15 @@ func diffIndex(a, b *Index) []string {
 	return out
 }
 
-// FileReader to odczyt drzewa plików: stan bieżący, migawka albo punkt
-// odzyskiwania. Używany przez eksport i odtwarzanie do nowego sejfu.
+// FileReader reads a file tree: the current state, a snapshot or a recovery
+// point. Used by export and by restore to a new vault.
 type FileReader interface {
 	Paths() []string
 	Stat(p string) (Entry, bool)
 	GetFile(p string) ([]byte, error)
 }
 
-// View to niezmienny widok indeksu z funkcją składania obiektów.
+// View is an immutable view of an index with an object-joining function.
 type View struct {
 	ix   *Index
 	read func(ID) ([]byte, error)
@@ -201,7 +201,7 @@ func (w *View) GetFile(p string) ([]byte, error) {
 	})
 }
 
-// List zwraca bezpośrednie dzieci katalogu w widoku.
+// List returns the direct children of a directory in the view.
 func (w *View) List(dir string) []DirItem {
 	dir = Clean(dir)
 	var out []DirItem
@@ -214,7 +214,7 @@ func (w *View) List(dir string) []DirItem {
 	return out
 }
 
-// readEntry składa plik z bloków i sprawdza rozmiar. Wywołujący czyści wynik.
+// readEntry joins a file from its blocks and checks the size. The caller wipes the result.
 func readEntry(e Entry, read func(string) ([]byte, error)) ([]byte, error) {
 	if e.Dir {
 		return nil, ErrIsDir

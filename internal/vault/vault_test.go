@@ -17,7 +17,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	SameDeviceCheck = false // w testach A i B leżą w jednym katalogu tymczasowym
+	SameDeviceCheck = false // in tests A and B are in one temporary directory
 	os.Exit(m.Run())
 }
 
@@ -48,7 +48,7 @@ func content(n int, seed string) []byte {
 	return bytes.Repeat([]byte(seed), n/len(seed)+1)[:n]
 }
 
-// CG-01: odczyt po zapisie i po ponownym otwarciu daje identyczne bajty.
+// CG-01: reading after a write and after reopening gives identical bytes.
 func TestRoundTripAfterReopen(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
@@ -65,7 +65,7 @@ func TestRoundTripAfterReopen(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(got, content(n, "abcdefg")) {
-			t.Fatalf("rozmiar %d: treść się różni", n)
+			t.Fatalf("size %d: content differs", n)
 		}
 	}
 	if r := v2.Fsck(); !r.OK() {
@@ -82,19 +82,19 @@ func scanFor(t *testing.T, root string, needles ...[]byte) {
 		data, _ := os.ReadFile(p)
 		for _, n := range needles {
 			if bytes.Contains(data, n) || strings.Contains(p, string(n)) {
-				t.Errorf("%s zawiera jawną treść %q", p, n)
+				t.Errorf("%s contains plain content %q", p, n)
 			}
 		}
 		return nil
 	})
 }
 
-// CG-02, CG-03: żaden z udziałów osobno nie zawiera treści ani nazw plików.
+// CG-02, CG-03: neither share alone contains content or file names.
 func TestSharesHoldNoPlaintext(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
-	marker := []byte("TAJNY-MARKER-XORDOCK")
-	name := "TAJNA-NAZWA-PLIKU"
+	marker := []byte("SECRET-MARKER-XORDOCK")
+	name := "SECRET-FILE-NAME"
 	if err := v.Mkdir("/" + name + "-dir"); err != nil {
 		t.Fatal(err)
 	}
@@ -129,8 +129,8 @@ func (r *recordingMasks) Fill(p []byte) error {
 	return nil
 }
 
-// CG-04, FR-07, FR-08, FR-21: każda wersja każdego bloku ma nową maskę,
-// także przy zapisie identycznej treści.
+// CG-04, FR-07, FR-08, FR-21: every version of every block has a new mask,
+// even when writing identical content.
 func TestEveryWriteGetsFreshMask(t *testing.T) {
 	a, b := roots(t)
 	rm := &recordingMasks{}
@@ -146,26 +146,26 @@ func TestEveryWriteGetsFreshMask(t *testing.T) {
 	}
 	for h, n := range rm.seen {
 		if n > 1 {
-			t.Fatalf("maska %x użyta %d razy", h[:4], n)
+			t.Fatalf("mask %x used %d times", h[:4], n)
 		}
 	}
-	// 1 indeks przy inicjalizacji + 5 × (2 bloki + 1 indeks)
+	// 1 index at initialization + 5 × (2 blocks + 1 index)
 	if rm.fills != 1+5*3 {
-		t.Fatalf("oczekiwano 16 masek, było %d", rm.fills)
+		t.Fatalf("expected 16 masks, got %d", rm.fills)
 	}
 	ids := map[string]bool{}
 	for _, bs := range blocks {
 		for _, id := range bs {
 			if ids[id] {
-				t.Fatal("ten sam obiekt w dwóch wersjach pliku")
+				t.Fatal("the same object in two versions of the file")
 			}
 			ids[id] = true
 		}
 	}
 }
 
-// Stare wersje są usuwane (najpierw udział B), więc na karcie nie rośnie
-// historia masek ponad bieżący i poprzedni stan.
+// Old versions are deleted (share B first), so the mask history on the card
+// does not grow beyond the current and previous state.
 func TestOldVersionsCollected(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
@@ -184,39 +184,39 @@ func TestOldVersionsCollected(t *testing.T) {
 		})
 		return n
 	}
-	// bieżący + poprzedni: po 1 bloku i 1 indeksie
+	// current + previous: 1 block and 1 index each
 	if na, nb := count(a), count(b); na != 4 || nb != 4 {
-		t.Fatalf("oczekiwano 4 obiektów na stronę, jest A=%d B=%d", na, nb)
+		t.Fatalf("expected 4 objects per side, got A=%d B=%d", na, nb)
 	}
 }
 
-// CG-06, FR-17: udział B innego sejfu jest odrzucany.
+// CG-06, FR-17: share B of another vault is rejected.
 func TestWrongCardRejected(t *testing.T) {
 	a1, b1 := roots(t)
 	a2, b2 := roots(t)
 	mustCreate(t, a1, b1, Options{})
 	mustCreate(t, a2, b2, Options{})
 	if _, err := Open(a1, b2, Options{}); !errors.Is(err, ErrWrongCard) {
-		t.Fatalf("oczekiwano ErrWrongCard, jest %v", err)
+		t.Fatalf("expected ErrWrongCard, got %v", err)
 	}
 }
 
-// CG-05: bez udziału B sejfu nie da się otworzyć.
+// CG-05: the vault cannot be opened without share B.
 func TestMissingCardBlocksOpen(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
-	v.PutFile("/x", []byte("dane"))
-	os.Rename(b, b+"-wyjęta")
+	v.PutFile("/x", []byte("data"))
+	os.Rename(b, b+"-removed")
 	if _, err := Open(a, b, Options{}); err == nil {
-		t.Fatal("sejf otwarty bez karty")
+		t.Fatal("vault opened without the card")
 	}
 }
 
-// FR-14: uszkodzony udział daje błąd, nie przypadkowe dane.
+// FR-14: a damaged share gives an error, not random data.
 func TestCorruptShareIsError(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
-	v.PutFile("/x", content(1000, "dane"))
+	v.PutFile("/x", content(1000, "data"))
 	e, _ := v.Stat("/x")
 	id, _ := ParseID(e.Blocks[0])
 	p := objPath(b, id)
@@ -224,32 +224,32 @@ func TestCorruptShareIsError(t *testing.T) {
 	raw[prefixLen+10] ^= 0xff
 	os.WriteFile(p, raw, 0o600)
 	if _, err := v.GetFile("/x"); !errors.Is(err, ErrCorrupt) {
-		t.Fatalf("oczekiwano ErrCorrupt, jest %v", err)
+		t.Fatalf("expected ErrCorrupt, got %v", err)
 	}
 	if r := v.Fsck(); r.OK() {
-		t.Fatal("fsck nie wykrył uszkodzenia")
+		t.Fatal("fsck did not detect the damage")
 	}
 }
 
 func TestCorruptSuperIsError(t *testing.T) {
 	a, b := roots(t)
 	mustCreate(t, a, b, Options{})
-	os.WriteFile(filepath.Join(a, superFile), []byte("śmieci\n00\n"), 0o600)
+	os.WriteFile(filepath.Join(a, superFile), []byte("garbage\n00\n"), 0o600)
 	if _, err := Open(a, b, Options{}); !errors.Is(err, ErrCorrupt) {
-		t.Fatalf("oczekiwano ErrCorrupt, jest %v", err)
+		t.Fatalf("expected ErrCorrupt, got %v", err)
 	}
 }
 
-var errCrash = errors.New("symulowana awaria")
+var errCrash = errors.New("simulated failure")
 
-// CG-07, SC-05, G-05: awaria na każdym etapie zatwierdzania kończy się
-// starą albo nową wersją po ponownym otwarciu, nigdy czymś pośrednim.
+// CG-07, SC-05, G-05: a crash at any commit stage ends with
+// the old or the new version after reopening, never something in between.
 func TestCrashAtEveryStage(t *testing.T) {
 	stages := []string{"share-A", "share-B", "barrier", "super-A", "super-B"}
-	oldData := content(2*BlockSize+3, "stara")
-	newData := content(3*BlockSize+7, "nowa!")
+	oldData := content(2*BlockSize+3, "old")
+	newData := content(3*BlockSize+7, "new!")
 	for _, stage := range stages {
-		for nth := 1; nth <= 6; nth++ { // 4 bloki + indeks = 5 wystąpień zapisu udziału
+		for nth := 1; nth <= 6; nth++ { // 4 blocks + index = 5 share writes
 			t.Run(fmt.Sprintf("%s#%d", stage, nth), func(t *testing.T) {
 				a, b := roots(t)
 				v := mustCreate(t, a, b, Options{})
@@ -268,13 +268,13 @@ func TestCrashAtEveryStage(t *testing.T) {
 				}
 				err := v.PutFile("/plik", newData)
 				if hits < nth {
-					t.Skip("etap nie wystąpił tyle razy")
+					t.Skip("the stage did not occur that many times")
 				}
 				if err == nil {
-					t.Fatal("zapis zgłosił sukces mimo awarii")
+					t.Fatal("write reported success despite the crash")
 				}
-				if err := v.PutFile("/inny", []byte("x")); !errors.Is(err, ErrBroken) {
-					t.Fatalf("po awarii oczekiwano ErrBroken, jest %v", err)
+				if err := v.PutFile("/other", []byte("x")); !errors.Is(err, ErrBroken) {
+					t.Fatalf("after the crash expected ErrBroken, got %v", err)
 				}
 				v2 := mustOpen(t, a, b)
 				got, err := v2.GetFile("/plik")
@@ -284,9 +284,9 @@ func TestCrashAtEveryStage(t *testing.T) {
 				switch {
 				case bytes.Equal(got, oldData):
 				case bytes.Equal(got, newData) && stage == "super-B":
-					// superblok A zapisany: commit dokończony przy otwarciu
+					// superblock A written: commit completed on open
 				default:
-					t.Fatalf("po awarii na %s treść nie jest ani starą, ani oczekiwaną wersją", stage)
+					t.Fatalf("after a crash at %s the content is neither the old nor the expected version", stage)
 				}
 				if r := v2.Fsck(); !r.OK() {
 					t.Fatal(r.Problems)
@@ -296,19 +296,19 @@ func TestCrashAtEveryStage(t *testing.T) {
 	}
 }
 
-// Awaria w połowie zapisu superbloku B (plik tymczasowy) jest sprzątana.
+// A crash halfway through writing superblock B (temporary file) is cleaned up.
 func TestTornTempFilesCleaned(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
-	v.PutFile("/x", []byte("dane"))
-	os.WriteFile(filepath.Join(b, superFile+".tmp"), []byte("połowa"), 0o600)
+	v.PutFile("/x", []byte("data"))
+	os.WriteFile(filepath.Join(b, superFile+".tmp"), []byte("half"), 0o600)
 	mustOpen(t, a, b)
 	if _, err := os.Stat(filepath.Join(b, superFile+".tmp")); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatal("plik tymczasowy nie został usunięty")
+		t.Fatal("temporary file was not deleted")
 	}
 }
 
-// Przerwana inicjalizacja (brak superbloku B) jest dokańczana (FR-06).
+// An interrupted initialization (no superblock B) is completed (FR-06).
 func TestInterruptedInitFinished(t *testing.T) {
 	a, b := roots(t)
 	_, err := Create(a, b, "t", Options{Hook: func(s string) error {
@@ -318,15 +318,15 @@ func TestInterruptedInitFinished(t *testing.T) {
 		return nil
 	}})
 	if err == nil {
-		t.Fatal("oczekiwano błędu")
+		t.Fatal("expected an error")
 	}
 	v := mustOpen(t, a, b)
 	if v.Recovery == "" {
-		t.Fatal("brak informacji o odzyskaniu")
+		t.Fatal("no recovery information")
 	}
 }
 
-// CG-08: równoległe zapisy różnych plików nie mieszają udziałów.
+// CG-08: concurrent writes of different files do not mix shares.
 func TestConcurrentWrites(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
@@ -345,12 +345,12 @@ func TestConcurrentWrites(t *testing.T) {
 	for i := 0; i < 16; i++ {
 		got, err := v2.GetFile(fmt.Sprintf("/p%d", i))
 		if err != nil || !bytes.Equal(got, content(BlockSize+i*1000, fmt.Sprintf("<%d>", i))) {
-			t.Fatalf("plik %d: %v", i, err)
+			t.Fatalf("file %d: %v", i, err)
 		}
 	}
 }
 
-// CG-09: logi nie zawierają treści, nazw plików ani masek.
+// CG-09: logs contain no content, file names or masks.
 func TestLogsHoldNoSecrets(t *testing.T) {
 	var buf bytes.Buffer
 	var mu sync.Mutex
@@ -361,32 +361,32 @@ func TestLogsHoldNoSecrets(t *testing.T) {
 	a, b := roots(t)
 	rm := &recordingMasks{}
 	v := mustCreate(t, a, b, Options{Masks: rm})
-	v.PutFile("/TAJNA-NAZWA", content(BlockSize, "TAJNY-MARKER"))
+	v.PutFile("/SECRET-NAME", content(BlockSize, "SECRET-MARKER"))
 	v.hook = func(s string) error {
 		if s == "super-B" {
 			return errCrash
 		}
 		return nil
 	}
-	v.PutFile("/TAJNA-NAZWA", content(BlockSize, "TAJNY-MARKER-2"))
+	v.PutFile("/SECRET-NAME", content(BlockSize, "SECRET-MARKER-2"))
 	mustOpen(t, a, b).Close()
-	// osierocony obiekt, żeby zadziałał log GC
+	// orphaned object, so that the GC log fires
 	os.MkdirAll(filepath.Join(a, objDir, "00"), 0o700)
 	os.WriteFile(filepath.Join(a, objDir, "00", "00"+strings.Repeat("1", 30)), []byte("x"), 0o600)
 	mustOpen(t, a, b)
 
 	logs := buf.String()
 	if logs == "" {
-		t.Fatal("test nie wygenerował logów")
+		t.Fatal("the test produced no logs")
 	}
-	for _, s := range []string{"TAJNA-NAZWA", "TAJNY-MARKER"} {
+	for _, s := range []string{"SECRET-NAME", "SECRET-MARKER"} {
 		if strings.Contains(logs, s) {
-			t.Fatalf("log zawiera %q", s)
+			t.Fatalf("log contains %q", s)
 		}
 	}
 	for _, m := range rm.first {
 		if strings.Contains(logs, hex.EncodeToString(m)) {
-			t.Fatal("log zawiera fragment maski")
+			t.Fatal("log contains a mask fragment")
 		}
 	}
 }
@@ -396,45 +396,45 @@ func TestRenameAndRemove(t *testing.T) {
 	v := mustCreate(t, a, b, Options{})
 	v.Mkdir("/d")
 	v.Mkdir("/d/e")
-	v.PutFile("/d/e/f", []byte("treść"))
+	v.PutFile("/d/e/f", []byte("content"))
 	if err := v.Rename("/d", "/z"); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := v.GetFile("/z/e/f"); err != nil || string(got) != "treść" {
-		t.Fatalf("po przeniesieniu: %q %v", got, err)
+	if got, err := v.GetFile("/z/e/f"); err != nil || string(got) != "content" {
+		t.Fatalf("after move: %q %v", got, err)
 	}
 	if _, ok := v.Stat("/d/e/f"); ok {
-		t.Fatal("stara ścieżka nadal istnieje")
+		t.Fatal("old path still exists")
 	}
 	if err := v.Rename("/z", "/z/e/w"); err == nil {
-		t.Fatal("przeniesienie katalogu do wnętrza powinno się nie udać")
+		t.Fatal("moving a directory into itself should fail")
 	}
 	if err := v.RemoveAll("/z"); err != nil {
 		t.Fatal(err)
 	}
 	if len(v.Paths()) != 1 {
-		t.Fatalf("zostały wpisy: %v", v.Paths())
+		t.Fatalf("entries left: %v", v.Paths())
 	}
-	if err := v.PutFile("/brak/plik", nil); !errors.Is(err, ErrNotExist) {
-		t.Fatalf("zapis bez katalogu nadrzędnego: %v", err)
+	if err := v.PutFile("/missing/file", nil); !errors.Is(err, ErrNotExist) {
+		t.Fatalf("write without a parent directory: %v", err)
 	}
 }
 
-// Drugi proces nie może otworzyć tego samego sejfu (GC jednego usunąłby
-// obiekty zapisywane przez drugi).
+// A second process cannot open the same vault (the GC of one would delete
+// objects written by the other).
 func TestSecondOpenLocked(t *testing.T) {
 	a, b := roots(t)
 	mustCreate(t, a, b, Options{})
 	v := mustOpen(t, a, b)
 	if _, err := Open(a, b, Options{}); err == nil {
-		t.Fatal("drugie otwarcie powinno się nie udać")
+		t.Fatal("second open should fail")
 	}
 	v.Close()
 	mustOpen(t, a, b).Close()
 }
 
-// Numery plików są stałe: przeżywają zmianę nazwy, zapis nowej treści
-// i ponowne otwarcie sejfu (potrzebne integracji z systemem plików macOS).
+// File numbers are stable: they survive renames, writing new content
+// and reopening the vault (needed for macOS file system integration).
 func TestInodesStable(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
@@ -446,51 +446,51 @@ func TestInodesStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := v.Create("/d/f", true); !errors.Is(err, ErrExist) {
-		t.Fatalf("wyłączne tworzenie istniejącego pliku: %v", err)
+		t.Fatalf("exclusive create of an existing file: %v", err)
 	}
 	if again, err := v.Create("/d/f", false); err != nil || again != ino {
-		t.Fatalf("tworzenie bez wyłączności: %d %v", again, err)
+		t.Fatalf("non-exclusive create: %d %v", again, err)
 	}
 	if _, err := v.RenameReplacing("/d", "/e"); err != nil {
 		t.Fatal(err)
 	}
-	blocks, _ := v.WriteBlocks([]byte("treść"))
+	blocks, _ := v.WriteBlocks([]byte("content"))
 	if err := v.SetFileIno(ino, blocks, 5, nil); err != nil {
 		t.Fatal(err)
 	}
 	if p, e, ok := v.ByIno(ino); !ok || p != "/e/f" || e.Size != 5 {
-		t.Fatalf("ByIno po przeniesieniu: %q %+v %v", p, e, ok)
+		t.Fatalf("ByIno after move: %q %+v %v", p, e, ok)
 	}
 	v2 := mustOpen(t, a, b)
 	defer v2.Close()
 	if e, _ := v2.Stat("/e/f"); e.Ino != ino {
-		t.Fatalf("numer po ponownym otwarciu: %d, był %d", e.Ino, ino)
+		t.Fatalf("number after reopening: %d, was %d", e.Ino, ino)
 	}
 	if root, _ := v2.Stat("/"); root.Ino != 1 {
-		t.Fatalf("katalog główny ma numer %d", root.Ino)
+		t.Fatalf("root directory has number %d", root.Ino)
 	}
 }
 
-// Zastąpienie pliku przy przeniesieniu zwraca numer zastąpionego; Remove
-// ma semantykę unlink/rmdir.
+// Replacing a file on move returns the replaced file's number; Remove
+// has unlink/rmdir semantics.
 func TestReplaceAndRemoveSemantics(t *testing.T) {
 	a, b := roots(t)
 	v := mustCreate(t, a, b, Options{})
 	x, _ := v.Create("/x", true)
 	y, _ := v.Create("/y", true)
 	if replaced, err := v.RenameReplacing("/x", "/y"); err != nil || replaced != y {
-		t.Fatalf("zastąpiony %d (oczekiwano %d): %v", replaced, y, err)
+		t.Fatalf("replaced %d (expected %d): %v", replaced, y, err)
 	}
 	if e, _ := v.Stat("/y"); e.Ino != x {
-		t.Fatal("po przeniesieniu plik ma inny numer")
+		t.Fatal("file has a different number after move")
 	}
 	v.Mkdir("/d")
 	v.Create("/d/z", true)
 	if _, err := v.Remove("/d", true); !errors.Is(err, ErrNotEmpty) {
-		t.Fatalf("rmdir niepustego: %v", err)
+		t.Fatalf("rmdir of a non-empty directory: %v", err)
 	}
 	if _, err := v.Remove("/d", false); !errors.Is(err, ErrIsDir) {
-		t.Fatalf("unlink katalogu: %v", err)
+		t.Fatalf("unlink of a directory: %v", err)
 	}
 	if _, err := v.Remove("/d/z", false); err != nil {
 		t.Fatal(err)
@@ -500,11 +500,11 @@ func TestReplaceAndRemoveSemantics(t *testing.T) {
 	}
 }
 
-// Indeks sprzed wprowadzenia numerów dostaje je deterministycznie.
+// An index from before file numbers were introduced gets them deterministically.
 func TestEnsureInosForOldIndex(t *testing.T) {
 	ix := &Index{Entries: map[string]*Entry{"/": {Dir: true}, "/b": {}, "/a": {}}}
 	ix.ensureInos()
 	if ix.Entries["/"].Ino != 1 || ix.Entries["/a"].Ino != 2 || ix.Entries["/b"].Ino != 3 || ix.NextIno != 4 {
-		t.Fatalf("numery: / %d, /a %d, /b %d, next %d", ix.Entries["/"].Ino, ix.Entries["/a"].Ino, ix.Entries["/b"].Ino, ix.NextIno)
+		t.Fatalf("numbers: / %d, /a %d, /b %d, next %d", ix.Entries["/"].Ino, ix.Entries["/a"].Ino, ix.Entries["/b"].Ino, ix.NextIno)
 	}
 }

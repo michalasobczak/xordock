@@ -41,41 +41,41 @@ struct MenuContent: View {
 
     var body: some View {
         if model.cliMissing {
-            Text("Brak programu xordock w pakiecie aplikacji")
+            Text("The xordock program is missing from the app bundle")
         }
         if !model.state.fileVault {
-            Text("⚠︎ FileVault wyłączony")
+            Text("⚠︎ FileVault is off")
         }
         ForEach(model.state.orphanCopies) { c in
-            Text("⚠︎ \(c.name): kopia A w iCloud bez SSD. Otwórz okno, aby odzyskać")
+            Text("⚠︎ \(c.name): share A copy in iCloud without SSD. Open the window to recover")
         }
         ForEach(model.state.vaults) { v in
             Section(v.name) {
                 let h = VaultHealth.evaluate(v, icloud: model.state.icloud)
                 Text((h.level == .ok ? "✓ " : "⚠︎ ") + h.title)
                 if v.mounted {
-                    Button("Pokaż w Finderze") { model.showInFinder(v.mountpoint) }
-                    Button("Odmontuj") { Task { _ = await model.unmount(v) } }
+                    Button("Show in Finder") { model.showInFinder(v.mountpoint) }
+                    Button("Unmount") { Task { _ = await model.unmount(v) } }
                 } else if v.card != nil, v.error == nil {
-                    Button("Zamontuj") { Task { await model.mount(v) } }
+                    Button("Mount") { Task { await model.mount(v) } }
                 }
             }
         }
         if let b = model.busy { Text(b) }
         Divider()
-        Button("Otwórz xordock…") { open() }
+        Button("Open xordock…") { open() }
             .keyboardShortcut("o")
-        Button("Samouczek…") {
+        Button("Tutorial…") {
             model.pendingIntro = true
             open()
         }
-        Button("Wymagania…") {
+        Button("Requirements…") {
             model.pendingRequirements = true
             open()
         }
-        SettingsLink { Text("Ustawienia…") }
+        SettingsLink { Text("Settings…") }
             .keyboardShortcut(",")
-        Button("Zakończ") { NSApp.terminate(nil) }
+        Button("Quit") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 
@@ -85,8 +85,8 @@ struct MenuContent: View {
     }
 }
 
-/// Ikona w pasku menu. Jest rysowana od startu aplikacji, więc tu sprawdzamy
-/// wymagania (S011) i otwieramy okno przy brakach albo z pytaniem o samouczek (S010).
+/// Menu bar icon. It is drawn from app launch, so here we check
+/// requirements (S011) and open the window when something is missing or with the tutorial prompt (S010).
 struct MenuBarLabel: View {
     let model: AppModel
     let iconName: String
@@ -103,7 +103,7 @@ struct MenuBarLabel: View {
     }
 }
 
-/// Ustawienia (⌘,), S010 T-02.
+/// Settings (⌘,), S010 T-02.
 struct SettingsView: View {
     let model: AppModel
     @AppStorage(AppModel.askKey) private var askAtLaunch = true
@@ -111,17 +111,17 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Wymagania") {
-                Button("Sprawdź wymagania (macFUSE, rozszerzenie, FileVault, iCloud)") {
+            Section("Requirements") {
+                Button("Check requirements (macFUSE, extension, FileVault, iCloud)") {
                     model.pendingRequirements = true
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                     Task { await model.checkRequirements(forceProbe: true) }
                 }
             }
-            Section("Samouczek") {
-                Toggle("Pytaj o samouczek przy starcie", isOn: $askAtLaunch)
-                Button("Uruchom samouczek teraz") {
+            Section("Tutorial") {
+                Toggle("Ask about the tutorial at launch", isOn: $askAtLaunch)
+                Button("Start tutorial now") {
                     model.pendingIntro = true
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)

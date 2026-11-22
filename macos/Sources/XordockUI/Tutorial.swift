@@ -2,16 +2,16 @@ import Observation
 import SwiftUI
 import XordockCore
 
-// Samouczek (S010): wprowadzenie, dymki przy elementach, pasek kroków,
-// pytanie przy starcie. Widoki tylko pokazują; akcje wykonuje użytkownik.
+// Tutorial (S010): introduction, tips next to elements, step bar,
+// launch prompt. Views only display; the user performs the actions.
 
-/// Stan samouczka współdzielony przez okno (kotwice dymków, pasek, arkusze).
+/// Tutorial state shared across the window (tip anchors, bar, sheets).
 @MainActor
 @Observable
 public final class TourController {
     public var tour = Tour()
     public var bubbleVisible = true
-    /// Sejf, którego dotyczą warunki kroków (wybrany w oknie).
+    /// Vault the step conditions refer to (selected in the window).
     public var vault: () -> VaultInfo? = { nil }
 
     public init() {}
@@ -25,7 +25,7 @@ public final class TourController {
     public func next() { tour.next(vault()); bubbleVisible = true }
     public func back() { tour.back(vault()); bubbleVisible = true }
     public func finish() { tour.finish() }
-    /// Wywoływane po każdym odświeżeniu stanu sejfów.
+    /// Called after every refresh of the vaults' state.
     public func update() { if tour.update(vault()) { bubbleVisible = true } }
 
     public func isPresented(_ a: TourAnchor) -> Bool {
@@ -33,7 +33,7 @@ public final class TourController {
     }
 }
 
-/// Treść dymka samouczka.
+/// Tutorial tip content.
 public struct TourBubble: View {
     let step: TourStep
     let number: Int
@@ -49,17 +49,17 @@ public struct TourBubble: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Krok \(number) z \(Tour.count)").font(.caption).foregroundStyle(.secondary)
+            Text("Step \(number) of \(Tour.count)").font(.caption).foregroundStyle(.secondary)
             Text(step.title).font(.headline)
             Text(step.text).fixedSize(horizontal: false, vertical: true)
             if step.automatic {
-                Label("Przejdę dalej sam, gdy to zrobisz.", systemImage: "hand.point.up.left")
+                Label("Continues automatically once you do this.", systemImage: "hand.point.up.left")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
-                Button("Zakończ samouczek", action: onFinish).buttonStyle(.link)
+                Button("End tutorial", action: onFinish).buttonStyle(.link)
                 Spacer()
-                Button(step.automatic ? "Pomiń krok" : (step == .menuBar ? "Gotowe" : "Dalej"), action: onNext)
+                Button(step.automatic ? "Skip step" : (step == .menuBar ? "Done" : "Next"), action: onNext)
                     .buttonStyle(step.automatic ? AnyButtonStyle(SecondaryButtonStyle()) : AnyButtonStyle(PrimaryButtonStyle()))
             }
         }
@@ -68,7 +68,7 @@ public struct TourBubble: View {
     }
 }
 
-/// Opakowanie stylu przycisku, żeby wybrać styl warunkowo.
+/// Button style wrapper, to pick a style conditionally.
 public struct AnyButtonStyle: ButtonStyle {
     private let make: (Configuration) -> AnyView
     public init<S: ButtonStyle>(_ s: S) { make = { AnyView(s.makeBody(configuration: $0)) } }
@@ -96,13 +96,13 @@ struct TourAnchorModifier: ViewModifier {
 }
 
 public extension View {
-    /// Miejsce dymka samouczka dla kroku z tą kotwicą.
+    /// Place of the tutorial tip for the step with this anchor.
     func tourAnchor(_ a: TourAnchor, edge: Edge = .bottom) -> some View {
         modifier(TourAnchorModifier(anchor: a, edge: edge))
     }
 }
 
-/// Pasek samouczka na dole okna (S010 T-05).
+/// Tutorial bar at the bottom of the window (S010 T-05).
 public struct TourBar: View {
     @Environment(TourController.self) private var tc: TourController?
     public init() {}
@@ -112,14 +112,14 @@ public struct TourBar: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
                     Image(systemName: "graduationcap").foregroundStyle(Color.accentColor)
-                    Text("Samouczek \(tc.tour.number)/\(Tour.count): \(s.title)").font(.callout.weight(.medium))
+                    Text("Tutorial \(tc.tour.number)/\(Tour.count): \(s.title)").font(.callout.weight(.medium))
                     Spacer()
                     if s.anchor != .none && !tc.bubbleVisible {
-                        Button("Pokaż dymek") { tc.bubbleVisible = true }
+                        Button("Show tip") { tc.bubbleVisible = true }
                     }
-                    Button("Wstecz", action: tc.back).disabled(tc.tour.number <= 1)
-                    Button(s.automatic ? "Pomiń krok" : (s == .menuBar ? "Gotowe" : "Dalej"), action: tc.next)
-                    Button("Zakończ", action: tc.finish)
+                    Button("Back", action: tc.back).disabled(tc.tour.number <= 1)
+                    Button(s.automatic ? "Skip step" : (s == .menuBar ? "Done" : "Next"), action: tc.next)
+                    Button("End", action: tc.finish)
                 }
                 .buttonStyle(SecondaryButtonStyle())
                 if s.anchor == .none {
@@ -132,7 +132,7 @@ public struct TourBar: View {
     }
 }
 
-/// Wskazówka samouczka wewnątrz arkusza (S010 T-06).
+/// Tutorial hint inside a sheet (S010 T-06).
 public struct TourHint: View {
     let text: String
     public init(_ text: String) { self.text = text }
@@ -144,7 +144,7 @@ public struct TourHint: View {
     }
 }
 
-/// Ekrany wprowadzenia (S010 T-03).
+/// Introduction screens (S010 T-03).
 public struct IntroView: View {
     @State private var index: Int
     let onFinish: () -> Void
@@ -180,12 +180,12 @@ public struct IntroView: View {
                 }
             }
             HStack {
-                Button("Pomiń wprowadzenie", action: onSkip).buttonStyle(.link)
+                Button("Skip introduction", action: onSkip).buttonStyle(.link)
                 Spacer()
                 if index > 0 {
-                    Button("Wstecz") { index -= 1 }.buttonStyle(SecondaryButtonStyle())
+                    Button("Back") { index -= 1 }.buttonStyle(SecondaryButtonStyle())
                 }
-                Button(last ? "Przejdź przez aplikację" : "Dalej") {
+                Button(last ? "Tour the app" : "Next") {
                     if last { onFinish() } else { index += 1 }
                 }
                 .buttonStyle(PrimaryButtonStyle())
@@ -197,7 +197,7 @@ public struct IntroView: View {
     }
 }
 
-/// Pytanie przy starcie (S010 T-01).
+/// Launch prompt (S010 T-01).
 public struct StartPrompt: View {
     @Binding var askAtLaunch: Bool
     let onStart: () -> Void
@@ -214,16 +214,16 @@ public struct StartPrompt: View {
             HStack(spacing: 14) {
                 Image(systemName: "graduationcap.fill").font(.system(size: 36)).foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Uruchomić samouczek?").font(.title2.weight(.semibold))
-                    Text("Kilka ekranów o tym, jak xordock chroni pliki, a potem przejście przez aplikację krok po kroku.")
+                    Text("Start the tutorial?").font(.title2.weight(.semibold))
+                    Text("A few screens about how xordock protects your files, then a step-by-step tour of the app.")
                         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Toggle("Nie pytaj przy starcie (zmienisz to w Ustawieniach)", isOn: Binding(get: { !askAtLaunch }, set: { askAtLaunch = !$0 }))
+            Toggle("Don't ask at launch (you can change this in Settings)", isOn: Binding(get: { !askAtLaunch }, set: { askAtLaunch = !$0 }))
             HStack {
                 Spacer()
-                Button("Nie teraz", action: onLater).buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
-                Button("Uruchom samouczek", action: onStart).buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                Button("Not now", action: onLater).buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Start tutorial", action: onStart).buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
             }
         }
         .padding(24)

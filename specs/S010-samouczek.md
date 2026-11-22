@@ -1,111 +1,111 @@
-# S010 — Samouczek: wprowadzenie i prowadzenie przez akcje
+# S010 — Tutorial: introduction and guidance through actions
 
-- **Status:** dostarczona (G1–G3, G5); G4 i przejście samouczka do sprawdzenia przez właściciela
-- **Data:** 2026-11-22
-- **Powiązane:** S007, S008, S009
+- **Status:** delivered (G1–G3, G5); G4 and a walkthrough of the tutorial to be checked by the owner
+- **Date:** 2026-11-22
+- **Related:** S007, S008, S009
 
 ## 1. TL;DR
 
-Przy każdym uruchomieniu aplikacja pyta, czy włączyć samouczek. Opcję „Nie pytaj przy starcie” można potem odwrócić w Ustawieniach.
+On every launch the app asks whether to start the tutorial. The "Don't ask at launch" option can later be reversed in Settings.
 
-Samouczek ma dwie części:
+The tutorial has two parts:
 
-- 6 ekranów z przyciskiem „Dalej”, które tłumaczą problem i rozwiązanie;
-- prowadzenie po prawdziwym sejfie: dymek wskazuje przycisk, użytkownik wykonuje akcję (załóż sejf, otwórz, odmontuj, backup), a samouczek sam przechodzi dalej, gdy stan sejfu się zmieni.
+- 6 screens with a "Next" button that explain the problem and the solution;
+- guidance on a real vault: a bubble points at a button, the user performs the action (create vault, open, unmount, backup), and the tutorial moves on by itself when the vault state changes.
 
 ## 2. Abstract
 
-Po S009 pulpit jest czytelny, ale nowa osoba nie wie, po co są dwie karty, iCloud i backup, ani w jakiej kolejności działać.
+After S009 the dashboard is readable, but a new person does not know why there are two cards, iCloud and a backup, nor in what order to act.
 
-Decyzje właściciela (2026-11-22):
+Owner's decisions (2026-11-22):
 
-- **Pytanie przy starcie:** przy każdym uruchomieniu, z polem „Nie pytaj przy starcie”; zmiana w Ustawieniach.
-- **Wprowadzenie:** proste, 5–6 ekranów, bez matematyki.
-- **Dymki na prawdziwym sejfie:** akcje prowadzą przez samouczek.
+- **Question at launch:** on every launch, with a "Don't ask at launch" checkbox; changeable in Settings.
+- **Introduction:** simple, 5–6 screens, no math.
+- **Bubbles on a real vault:** actions lead through the tutorial.
 
 ## 3. Objective
 
-- **Cele:**
-  - T-01 **Pytanie przy starcie.** Okno otwiera się z arkuszem „Samouczek?”: [Uruchom samouczek] [Nie teraz] i pole „Nie pytaj przy starcie”. Ustawienie trzyma `UserDefaults`.
-  - T-02 **Ustawienia** (⌘, oraz pozycja w menu kłódki): przełącznik „Pytaj o samouczek przy starcie” i przycisk „Uruchom samouczek teraz”.
-  - T-03 **Wprowadzenie:** 6 ekranów (problem, pomysł, gdzie leżą połówki, kopie, zasady, uczciwe granice ochrony) z ikoną, tytułem i krótkim tekstem; przyciski Wstecz, Dalej, Pomiń wprowadzenie.
-  - T-04 **Prowadzenie.** Kroki zakotwiczone dymkiem przy elemencie interfejsu:
+- **Goals:**
+  - T-01 **Question at launch.** The window opens with a "Tutorial?" sheet: [Start tutorial] [Not now] and a "Don't ask at launch" checkbox. The setting is kept in `UserDefaults`.
+  - T-02 **Settings** (⌘, and an item in the padlock menu): an "Ask about the tutorial at launch" toggle and a "Start tutorial now" button.
+  - T-03 **Introduction:** 6 screens (the problem, the idea, where the halves live, copies, rules, honest limits of the protection) with an icon, a title and a short text; Back, Next, Skip introduction buttons.
+  - T-04 **Guidance.** Steps anchored with a bubble next to a UI element:
 
-    | Krok | Zakończenie |
+    | Step | Completion |
     | --- | --- |
-    | załóż sejf | automatycznie, gdy sejf istnieje; pomijany, jeśli już jest |
-    | status | „Dalej” |
-    | kafelki | „Dalej” |
-    | otwórz sejf | automatycznie, gdy zamontowany |
-    | wrzuć pliki w Finderze | „Dalej” |
-    | odmontuj | automatycznie, gdy odmontowany |
-    | zrób backup | automatycznie, gdy pojawi się nowy punkt READY |
-    | odzyskiwanie | „Dalej” |
-    | pasek menu i ustawienia | „Zakończ” |
-  - T-05 **Pasek samouczka** na dole okna: numer kroku, „Pokaż dymek”, Wstecz, Dalej/Pomiń krok, Zakończ. Zamknięty dymek nie przerywa samouczka.
-  - T-06 Wskazówki samouczka w arkuszach „Nowy sejf” i „Backup” (wybór nośników).
-- **Poza zakresem:** filmy i animacje, tłumaczenia, nauka odzyskiwania na prawdziwych danych (krok tylko tłumaczy i wskazuje „Weryfikuj”).
-- **Kryteria sukcesu:** bramki z §7 i przejście samouczka przez właściciela.
+    | create a vault | automatically, when the vault exists; skipped if one already exists |
+    | status | "Next" |
+    | tiles | "Next" |
+    | open the vault | automatically, when mounted |
+    | drop files in Finder | "Next" |
+    | unmount | automatically, when unmounted |
+    | make a backup | automatically, when a new READY point appears |
+    | recovery | "Next" |
+    | menu bar and settings | "Done" |
+  - T-05 **Tutorial bar** at the bottom of the window: step number, "Show tip", Back, Next/Skip step, End. A closed bubble does not interrupt the tutorial.
+  - T-06 Tutorial hints in the "New vault" and "Backup" sheets (choice of media).
+- **Out of scope:** videos and animations, translations, practicing recovery on real data (the step only explains and points at "Verify").
+- **Success criteria:** the gates from §7 and a walkthrough of the tutorial by the owner.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Type | State |
 | --- | --- | --- |
-| `macos/Sources/XordockCore/Tutorial.swift` | kod: treść ekranów, kroki, warunki zakończenia, maszyna stanów | do utworzenia |
-| `macos/Sources/XordockUI/Tutorial.swift` | kod: ekrany wprowadzenia, dymek, pasek samouczka | do utworzenia |
-| `macos/Sources/XordockApp/*` | kod: pytanie przy starcie, Ustawienia, kotwice dymków | do zmiany |
+| `macos/Sources/XordockCore/Tutorial.swift` | code: screen content, steps, completion conditions, state machine | to create |
+| `macos/Sources/XordockUI/Tutorial.swift` | code: introduction screens, bubble, tutorial bar | to create |
+| `macos/Sources/XordockApp/*` | code: question at launch, Settings, bubble anchors | to change |
 
 ## 5. Functional Domain Changes
 
-- Maszyna stanów `Tour` jest czysta (Core):
-  - `start(state)` pomija krok „załóż sejf”, gdy sejf już jest;
-  - `update(state)` przesuwa automatycznie po spełnieniu warunku;
+- The `Tour` state machine is pure (Core):
+  - `start(state)` skips the "create a vault" step when a vault already exists;
+  - `update(state)` advances automatically once the condition is met;
   - `next`, `back`, `finish`.
-- Krok „zrób backup” zapamiętuje identyfikator ostatniego punktu w chwili wejścia i kończy się, gdy pojawi się inny.
-- Samouczek działa na sejfie wybranym w oknie. Gdy wybór się zmieni, warunki dotyczą nowego wyboru.
-- Samouczek niczego nie wykonuje sam. Akcje (zapis na nośniki) robi użytkownik, tymi samymi przyciskami i arkuszami co zwykle (S004 §7).
-- Ustawienia: `askTutorialAtLaunch` (domyślnie `true`).
+- The "make a backup" step remembers the identifier of the last point at the moment of entering and completes when a different one appears.
+- The tutorial works on the vault selected in the window. When the selection changes, the conditions apply to the new selection.
+- The tutorial performs nothing by itself. Actions (writes to media) are done by the user, with the same buttons and sheets as usual (S004 §7).
+- Settings: `askTutorialAtLaunch` (default `true`).
 
 ## 6. Critical Path
 
-1. Core z testami.
-2. Widoki wprowadzenia, dymku i paska.
-3. Kotwice w pulpicie i na liście, pytanie przy starcie, Ustawienia.
-4. Rendery ekranów do PNG, budowanie `.app`.
+1. Core with tests.
+2. Views for the introduction, the bubble and the bar.
+3. Anchors in the dashboard and in the list, question at launch, Settings.
+4. Renders of the screens to PNG, building the `.app`.
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek | Weryfikacja | Blokuje |
+| # | Gate | Condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | Maszyna stanów | pomijanie „załóż sejf”, automatyczne przejścia (montowanie, odmontowanie, nowy punkt), Wstecz/Dalej/Zakończ | `swift test` | commit |
-| G2 | Treść | 6 ekranów; tytuł ≤ 6 słów, tekst ≤ 320 znaków; każdy krok ma tytuł i tekst ≤ 220 znaków | `swift test` | commit |
-| G3 | **Negatywna:** samouczek nie działa sam | Core nie wywołuje poleceń; w kodzie samouczka brak `Commands.` | test źródeł | commit |
-| G4 | Ustawienie | „Nie pytaj przy starcie” zapisane i odwracalne w Ustawieniach | przegląd + E2E | wydanie |
-| G5 | Wygląd | rendery ekranów wprowadzenia i dymku (jasny/ciemny) bez uciętych tekstów | przegląd | commit |
+| G1 | State machine | skipping "create a vault", automatic transitions (mount, unmount, new point), Back/Next/Finish | `swift test` | commit |
+| G2 | Content | 6 screens; title ≤ 6 words, text ≤ 320 characters; every step has a title and a text ≤ 220 characters | `swift test` | commit |
+| G3 | **Negative:** the tutorial does not act by itself | Core does not call commands; no `Commands.` in the tutorial code | source test | commit |
+| G4 | Setting | "Don't ask at launch" saved and reversible in Settings | review + E2E | release |
+| G5 | Appearance | renders of the introduction screens and the bubble (light/dark) without truncated texts | review | commit |
 
 ## 8. Expected Outcome
 
-Nowa osoba rozumie sens podziału i kopii, a pierwszy sejf z backupem zakłada, idąc za dymkami. Wycofanie: wyłączenie pytania w Ustawieniach.
+A new person understands the point of the split and of the copies, and creates the first vault with a backup by following the bubbles. Rollback: turning off the question in Settings.
 
 ## 9. Additional Information
 
-- **Kotwice dymków:** natywne `popover` SwiftUI, które działają w kolumnie listy, w pulpicie i w pasku narzędzi. Kliknięcie poza dymkiem go zamyka, a samouczek trwa (pasek ma „Pokaż dymek”).
-- **Pasek menu:** dymka nie da się zakotwiczyć przy ikonie w pasku menu, więc ostatni krok opisuje go słowami.
+- **Bubble anchors:** native SwiftUI `popover`, which works in the list column, in the dashboard and in the toolbar. Clicking outside the bubble closes it, and the tutorial continues (the bar has "Show tip").
+- **Menu bar:** a bubble cannot be anchored to the menu bar icon, so the last step describes it in words.
 
-## Realizacja (2026-11-22)
+## Implementation (2026-11-22)
 
-- **Core:** `XordockCore/Tutorial.swift`: `Intro.pages` (6 ekranów; zasady jako lista), `TourStep` (9 kroków z kotwicą, tytułem, tekstem i flagą „automatyczny”), maszyna `Tour`.
+- **Core:** `XordockCore/Tutorial.swift`: `Intro.pages` (6 screens; rules as a list), `TourStep` (9 steps with an anchor, title, text and an "automatic" flag), the `Tour` machine.
 - **UI:** `XordockUI/Tutorial.swift`:
-  - `TourController` (`@Observable`, wspólny dla okna i arkuszy);
-  - `TourBubble`, modyfikator `.tourAnchor(…)` (natywny `popover`), `TourBar`, `TourHint`, `IntroView`, `StartPrompt`.
-  - Zamknięcie dymku kliknięciem obok tylko go ukrywa („Pokaż dymek” w pasku).
-- **Kotwice:**
-  - „Nowy sejf…” na liście;
-  - karta statusu, kafelki;
-  - „Otwórz sejf”, „Odmontuj”, „Backup…”, „Odzyskiwanie…”. Przycisk główny dostaje kotwicę „mount” lub „backup” zależnie od zalecenia, więc dymek trafia na widoczny przycisk.
-- **Start:**
-  - ikona w pasku menu (rysowana od startu) otwiera okno, gdy `askTutorialAtLaunch` = true; okno pokazuje `StartPrompt`;
-  - menu kłódki: „Samouczek…” i „Ustawienia…” (`SettingsLink`, ⌘,);
-  - Ustawienia: przełącznik i „Uruchom samouczek teraz”.
-- **Testy:** `tourFlow` (G1), `tutorialTexts` (G2), `tutorialRunsNoCommands` (G3). Razem 16 testów Swift.
-- **G5:** rendery 6 ekranów, dymków i pytania w obu trybach (`XordockPreview`). Przykłady w `docs/ui/`. Po przeglądzie ekran „Pięć zasad” zamieniony na listę.
+  - `TourController` (`@Observable`, shared by the window and the sheets);
+  - `TourBubble`, the `.tourAnchor(…)` modifier (native `popover`), `TourBar`, `TourHint`, `IntroView`, `StartPrompt`.
+  - Closing the bubble by clicking beside it only hides it ("Show tip" in the bar).
+- **Anchors:**
+  - "New vault…" in the list;
+  - the status card, the tiles;
+  - "Open vault", "Unmount", "Backup…", "Recovery…". The main button gets the "mount" or "backup" anchor depending on the recommendation, so the bubble lands on the visible button.
+- **Launch:**
+  - the menu bar icon (drawn from launch) opens the window when `askTutorialAtLaunch` = true; the window shows `StartPrompt`;
+  - padlock menu: "Tutorial…" and "Settings…" (`SettingsLink`, ⌘,);
+  - Settings: the toggle and "Start tutorial now".
+- **Tests:** `tourFlow` (G1), `tutorialTexts` (G2), `tutorialRunsNoCommands` (G3). 16 Swift tests in total.
+- **G5:** renders of the 6 screens, the bubbles and the question in both modes (`XordockPreview`). Examples in `docs/ui/`. After review the "Five rules" screen was changed into a list.

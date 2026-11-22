@@ -1,35 +1,35 @@
-// Package split dzieli dane na dwa udziały XOR i składa je z powrotem.
+// Package split splits data into two XOR shares and joins them back.
 //
 //	A = M XOR R
 //	B = R
 //	M = A XOR B
 //
-// R pochodzi z MaskSource. W MVP jest to CSPRNG systemu macOS
-// (SecRandomCopyBytes, S004 D-06), co daje ochronę praktyczną, a NIE
-// poufność informacyjno-teoretyczną (odporną na P = NP). Zob. S004 G-09, CG-14.
+// R comes from a MaskSource. In the MVP it is the macOS system CSPRNG
+// (SecRandomCopyBytes, S004 D-06), which gives practical protection, NOT
+// information-theoretic secrecy (resistant to P = NP). See S004 G-09, CG-14.
 package split
 
 import "errors"
 
-// MaskSource dostarcza świeżą maskę. Każde wywołanie Fill musi dać nowe,
-// niezależne bajty; implementacja nie może ich zapamiętywać ani logować.
+// MaskSource supplies a fresh mask. Every Fill call must produce new,
+// independent bytes; the implementation must not remember or log them.
 type MaskSource interface {
 	Fill(b []byte) error
 }
 
-// CSPRNG to systemowy generator macOS (SecRandomCopyBytes, csprng_darwin.go).
-// Błąd generatora zatrzymuje zapis (S004 D-06).
+// CSPRNG is the macOS system generator (SecRandomCopyBytes, csprng_darwin.go).
+// A generator error stops the write (S004 D-06).
 type CSPRNG struct{}
 
-// Kind opisuje klasę gwarancji źródła masek. Używany w interfejsie, żeby
-// nie przedstawiać CSPRNG jako odpornego na P = NP (CG-10).
+// Kind describes the guarantee class of the mask source. Used in the UI so
+// that the CSPRNG is not presented as resistant to P = NP (CG-10).
 func Kind(MaskSource) string {
-	return "CSPRNG macOS (SecRandomCopyBytes): ochrona praktyczna (obliczeniowa), BEZ gwarancji informacyjno-teoretycznej i odporności na P = NP"
+	return "macOS CSPRNG (SecRandomCopyBytes): practical (computational) protection, NO information-theoretic guarantee and no resistance to P = NP"
 }
 
-var ErrLength = errors.New("udziały mają różną długość")
+var ErrLength = errors.New("shares have different lengths")
 
-// Split zwraca (a, b) dla danych m z nową maską.
+// Split returns (a, b) for data m with a new mask.
 func Split(m []byte, src MaskSource) (a, b []byte, err error) {
 	b = make([]byte, len(m))
 	if err := src.Fill(b); err != nil {
@@ -42,7 +42,7 @@ func Split(m []byte, src MaskSource) (a, b []byte, err error) {
 	return a, b, nil
 }
 
-// Join odtwarza m = a XOR b.
+// Join restores m = a XOR b.
 func Join(a, b []byte) ([]byte, error) {
 	if len(a) != len(b) {
 		return nil, ErrLength
@@ -54,7 +54,7 @@ func Join(a, b []byte) ([]byte, error) {
 	return m, nil
 }
 
-// Wipe zeruje bufor z jawnymi danymi (best effort: GC Go może mieć kopie).
+// Wipe zeroes a buffer holding plain data (best effort: the Go GC may keep copies).
 func Wipe(b []byte) {
 	for i := range b {
 		b[i] = 0

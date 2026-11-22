@@ -1,7 +1,7 @@
 import Foundation
 
-// Samouczek (S010): treść wprowadzenia, kroki prowadzenia i czysta maszyna
-// stanów. Samouczek niczego nie wykonuje sam; tylko obserwuje stan sejfu.
+// Tutorial (S010): introduction content, guided steps and a pure state
+// machine. The tutorial performs nothing itself; it only observes the vault state.
 
 public struct IntroPage: Equatable, Sendable, Identifiable {
     public var symbol: String
@@ -13,27 +13,27 @@ public struct IntroPage: Equatable, Sendable, Identifiable {
 public enum Intro {
     public static let pages: [IntroPage] = [
         IntroPage(symbol: "laptopcomputer.trianglebadge.exclamationmark",
-                  title: "Problem: wszystko w jednym miejscu",
-                  text: "Twoje najważniejsze pliki leżą na jednym komputerze. Kto zdobędzie Maca i dostęp do konta, ma też pliki. Kradzież, serwis, zapomniane konto: wystarczy jedno zdarzenie."),
+                  title: "Problem: everything in one place",
+                  text: "Your most important files sit on a single computer. Whoever gets the Mac and access to the account also gets the files. Theft, a repair, a forgotten account: one event is enough."),
         IntroPage(symbol: "square.split.2x1",
-                  title: "Pomysł: dwie połówki",
-                  text: "xordock dzieli każdy plik na dwie połówki, A i B. Każda połówka osobno wygląda jak losowy szum i nic nie zdradza: ani treści, ani nazw plików. Dopiero obie razem dają plik."),
+                  title: "Idea: two halves",
+                  text: "xordock splits every file into two halves, A and B. Each half on its own looks like random noise and reveals nothing: neither the contents nor the file names. Only both together make the file."),
         IntroPage(symbol: "sdcard",
-                  title: "A na Macu, B na karcie",
-                  text: "A zostaje na dysku Maca, B trafia na kartę SD lub pendrive. Gdy wyjmiesz kartę, na Macu nie ma czego czytać. Gdy zgubisz kartę, sama nic nie zdradza. Z kartą w porcie widzisz zwykły folder w Finderze."),
+                  title: "Mac holds A, card holds B",
+                  text: "A stays on the Mac's disk, B goes to an SD card or USB drive. When you remove the card, there is nothing to read on the Mac. If you lose the card, on its own it reveals nothing. With the card plugged in, you see a regular folder in Finder."),
         IntroPage(symbol: "externaldrive.badge.icloud",
-                  title: "Kopie: zapasowa karta i iCloud",
-                  text: "Każda połówka jest niezbędna, więc obie mają kopię: B na drugiej karcie (zapasowej), A w iCloud Drive. Dzięki temu możesz stracić jedną rzecz naraz: Maca, kartę roboczą albo zapasową."),
+                  title: "Copies: spare card and iCloud",
+                  text: "Each half is essential, so both have a copy: B on a second (spare) card, A in iCloud Drive. This way you can lose one thing at a time: the Mac, the working card or the spare card."),
         IntroPage(symbol: "checklist",
-                  title: "Pięć zasad",
-                  text: "1. Nie trzymaj kart razem.\n2. Karta nigdy w iCloud ani na dysku Time Machine.\n3. Odmontuj, zanim wyjmiesz kartę.\n4. Włącz 2FA i Advanced Data Protection dla iCloud.\n5. Po zgubieniu karty odtwórz sejf z nowymi połówkami."),
+                  title: "Five rules",
+                  text: "1. Keep the cards apart.\n2. Never put a card in iCloud or on a Time Machine disk.\n3. Unmount before you remove the card.\n4. Enable 2FA and Advanced Data Protection for iCloud.\n5. If you lose a card, restore the vault with new halves."),
         IntroPage(symbol: "hand.raised",
-                  title: "Uczciwie: granice ochrony",
-                  text: "Ochrona jest praktyczna, nie absolutna. Gdy sejf jest otwarty, pliki są dostępne na Macu jak zwykle, a programy mogą robić ich kopie. Dlatego włącz FileVault i zamykaj sejf, gdy go nie używasz."),
+                  title: "Honestly: the limits of protection",
+                  text: "The protection is practical, not absolute. While the vault is open, the files are available on the Mac as usual, and programs can make copies of them. So turn on FileVault and close the vault when you're not using it."),
     ]
 }
 
-/// Element interfejsu, przy którym pojawia się dymek.
+/// UI element next to which the tip appears.
 public enum TourAnchor: String, Sendable {
     case newVault, status, tiles, mount, unmount, backup, recovery, none
 }
@@ -54,7 +54,7 @@ public enum TourStep: Int, CaseIterable, Sendable {
         }
     }
 
-    /// Krok kończy się sam, gdy użytkownik wykona akcję.
+    /// The step completes by itself when the user performs the action.
     public var automatic: Bool {
         switch self {
         case .createVault, .mount, .unmount, .backup: return true
@@ -64,46 +64,46 @@ public enum TourStep: Int, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .createVault: return "Załóż pierwszy sejf"
-        case .status: return "Status sejfu"
-        case .tiles: return "Gdzie leżą połówki"
-        case .mount: return "Otwórz sejf"
-        case .useFinder: return "Pracuj jak w zwykłym folderze"
-        case .unmount: return "Zamknij sejf"
-        case .backup: return "Zrób backup"
-        case .recovery: return "Odzyskiwanie"
-        case .menuBar: return "Kłódka w pasku menu"
+        case .createVault: return "Create your first vault"
+        case .status: return "Vault status"
+        case .tiles: return "Where the halves live"
+        case .mount: return "Open the vault"
+        case .useFinder: return "Work as in a regular folder"
+        case .unmount: return "Close the vault"
+        case .backup: return "Back up now"
+        case .recovery: return "Recovery"
+        case .menuBar: return "The lock in the menu bar"
         }
     }
 
     public var text: String {
         switch self {
         case .createVault:
-            return "Podłącz kartę lub pendrive i kliknij „Nowy sejf…”. Wpisz nazwę i wybierz nośnik. Samouczek przejdzie dalej, gdy sejf powstanie."
+            return "Connect a card or USB drive and click \"New vault…\". Enter a name and choose the drive. The tutorial continues once the vault is created."
         case .status:
-            return "Tu zawsze widzisz jedną najważniejszą rzecz i przycisk, który ją załatwia. Zielony znaczy: wszystko w porządku."
+            return "Here you always see the one most important thing and a button that takes care of it. Green means: all good."
         case .tiles:
-            return "Cztery miejsca: połówka A na Macu, B na karcie roboczej, kopia B na karcie zapasowej i kopia A w iCloud. ⚠︎ pokazuje, czego brakuje."
+            return "Four places: half A on the Mac, B on the working card, a copy of B on the spare card and a copy of A in iCloud. ⚠︎ shows what's missing."
         case .mount:
-            return "Kliknij „Otwórz sejf”. Sejf pojawi się w Finderze jako zwykły dysk. Karta robocza musi być podłączona."
+            return "Click \"Open vault\". The vault appears in Finder as a regular disk. The working card must be connected."
         case .useFinder:
-            return "Wrzuć kilka plików do okna xordock w Finderze. Każdy zapis od razu dzieli się na połówkę A (Mac) i B (karta). Potem kliknij Dalej."
+            return "Drop a few files into the xordock window in Finder. Every write is split right away into half A (Mac) and B (card). Then click Next."
         case .unmount:
-            return "Kliknij „Odmontuj”, zanim wyjmiesz kartę. Bez tego ostatnie zmiany mogą przepaść."
+            return "Click \"Unmount\" before you remove the card. Otherwise the latest changes may be lost."
         case .backup:
-            return "Podłącz drugi nośnik (kartę zapasową) i kliknij „Zrób backup”. Powstanie kopia B na karcie i kopia A w iCloud."
+            return "Connect a second drive (the spare card) and click \"Back up now\". This creates a copy of B on the card and a copy of A in iCloud."
         case .recovery:
-            return "Gdy coś zginie, tu odzyskasz dane. Raz na jakiś czas sprawdź backup: Odzyskiwanie… → Weryfikuj."
+            return "If something gets lost, recover your data here. Check your backup now and then: Recovery… → Verify."
         case .menuBar:
-            return "Kłódka w pasku menu pokazuje stan sejfów i otwiera je bez tego okna. Samouczek i pytanie przy starcie zmienisz w Ustawieniach (⌘,)."
+            return "The lock in the menu bar shows the state of your vaults and opens them without this window. Change the tutorial and the launch prompt in Settings (⌘,)."
         }
     }
 }
 
-/// Maszyna stanów samouczka (S010 T-04). Czysta: tylko obserwuje stan.
+/// Tutorial state machine (S010 T-04). Pure: it only observes state.
 public struct Tour: Equatable, Sendable {
     public private(set) var step: TourStep?
-    /// Punkt backupu w chwili wejścia w krok „zrób backup”.
+    /// Backup point at the moment of entering the "back up now" step.
     public private(set) var baselinePoint: String?
 
     public init() {}
@@ -140,8 +140,8 @@ public struct Tour: Equatable, Sendable {
         if s == .backup { baselinePoint = vault?.lastBackup?.point }
     }
 
-    /// Automatyczne przejście, gdy akcja kroku została wykonana. Zwraca true,
-    /// jeśli krok się zmienił.
+    /// Automatic transition once the step's action has been performed. Returns true
+    /// if the step changed.
     @discardableResult
     public mutating func update(_ vault: VaultInfo?) -> Bool {
         guard let s = step, s.automatic else { return false }

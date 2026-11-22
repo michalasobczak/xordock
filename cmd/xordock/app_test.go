@@ -15,8 +15,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// S007 U-01: lista sejfów łączy udział A z kartą znalezioną po identyfikatorze,
-// także gdy wolumin karty ma inną nazwę niż sejf.
+// S007 U-01: the vault list joins share A with the card found by ID,
+// even when the card's volume has a different name than the vault.
 func TestCollectVaults(t *testing.T) {
 	d := t.TempDir()
 	dir, vols := filepath.Join(d, "app"), filepath.Join(d, "Volumes")
@@ -35,7 +35,7 @@ func TestCollectVaults(t *testing.T) {
 	os.RemoveAll(filepath.Join(vols, "PENDRIVE"))
 	got = collectVaults(dir, vols)
 	if got[0].Card != "" || got[0].Error != "" {
-		t.Fatalf("bez karty: %+v", got[0])
+		t.Fatalf("no card: %+v", got[0])
 	}
 }
 
@@ -47,22 +47,22 @@ func TestWholeDisk(t *testing.T) {
 	}
 }
 
-// Nazwa sejfu nie może wyprowadzić ścieżek A/B poza ich katalogi.
+// A vault name must not lead the A/B paths outside their directories.
 func TestValidName(t *testing.T) {
-	for _, bad := range []string{"", "..", ".ukryty", "a/b", "../x", "a:b", " a", "a ", "a\nb", string(make([]rune, 65))} {
+	for _, bad := range []string{"", "..", ".hidden", "a/b", "../x", "a:b", " a", "a ", "a\nb", string(make([]rune, 65))} {
 		if validName(bad) == nil {
-			t.Errorf("przyjęto %q", bad)
+			t.Errorf("accepted %q", bad)
 		}
 	}
-	for _, good := range []string{"test", "Moje dokumenty", "zdjęcia-2026", "a.b_c"} {
+	for _, good := range []string{"test", "My documents", "café-2026", "a.b_c"} {
 		if err := validName(good); err != nil {
 			t.Errorf("%q: %v", good, err)
 		}
 	}
 }
 
-// S008 K-05: kopia A w iCloud jest widoczna przy sejfie, a bez udziału A
-// na Macu trafia na listę kopii do odzyskania.
+// S008 K-05: the A copy in iCloud is shown with its vault, and without share A
+// on the Mac it goes to the list of copies to recover.
 func TestACopyInState(t *testing.T) {
 	d := t.TempDir()
 	a, b := filepath.Join(d, "app", "sejf"), filepath.Join(d, "Volumes", "K", "xordock", "sejf")
@@ -83,19 +83,19 @@ func TestACopyInState(t *testing.T) {
 		t.Fatalf("%+v", jc)
 	}
 	if _, ok := readCopy(a); ok {
-		t.Fatal("żywy udział A uznany za kopię")
+		t.Fatal("live share A taken for a copy")
 	}
 	vs := collectVaults(filepath.Join(d, "app"), filepath.Join(d, "Volumes"))
 	if got := orphanCopies(icloud, vs); len(got) != 0 {
-		t.Fatalf("kopia z udziałem A na Macu jako osierocona: %+v", got)
+		t.Fatalf("copy with share A on the Mac listed as orphaned: %+v", got)
 	}
 	os.RemoveAll(filepath.Join(d, "app"))
 	if got := orphanCopies(icloud, nil); len(got) != 1 || got[0].Name != "sejf" {
-		t.Fatalf("po utracie SSD: %+v", got)
+		t.Fatalf("after losing the SSD: %+v", got)
 	}
 }
 
-// S011 G3: brak macFUSE, stara wersja, wyłączone rozszerzenie, stary macOS.
+// S011 G3: no macFUSE, old version, extension disabled, old macOS.
 func TestDoctor(t *testing.T) {
 	saved := []any{macfusePlist, macfuseAvailable, probeMount, osVersion}
 	defer func() {
@@ -120,31 +120,31 @@ func TestDoctor(t *testing.T) {
 	probed := false
 	probeMount = func(time.Duration) error { probed = true; return nil }
 
-	macfusePlist = filepath.Join(d, "brak.plist")
+	macfusePlist = filepath.Join(d, "missing.plist")
 	macfuseAvailable = func() bool { return false }
 	c := byID(runDoctor(true))
 	if c["macfuse"].Level != "error" || c["macfuse"].FixURL != macfuseURL || c["extension"].Level != "unknown" || probed {
-		t.Fatalf("brak macFUSE: %+v", c)
+		t.Fatalf("no macFUSE: %+v", c)
 	}
 
 	write("5.4.1")
 	macfusePlist = plist
 	macfuseAvailable = func() bool { return true }
 	if c := byID(runDoctor(false)); c["macfuse"].Level != "error" || c["extension"].Level != "unknown" {
-		t.Fatalf("stara wersja: %+v", c)
+		t.Fatalf("old version: %+v", c)
 	}
 
 	write("5.5.0")
 	if c := byID(runDoctor(true)); c["macfuse"].Level != "ok" || c["extension"].Level != "ok" || !probed {
-		t.Fatalf("wszystko ok: %+v", c)
+		t.Fatalf("all ok: %+v", c)
 	}
-	probeMount = func(time.Duration) error { return errors.New("nie") }
+	probeMount = func(time.Duration) error { return errors.New("no") }
 	if c := byID(runDoctor(true)); c["extension"].Level != "error" || c["extension"].FixURL != extensionsURL {
-		t.Fatalf("rozszerzenie wyłączone: %+v", c)
+		t.Fatalf("extension disabled: %+v", c)
 	}
 	osVersion = func() string { return "15.4" }
 	if c := byID(runDoctor(false)); c["macos"].Level != "error" {
-		t.Fatalf("stary macOS: %+v", c)
+		t.Fatalf("old macOS: %+v", c)
 	}
 	for _, tc := range []struct {
 		v, min string

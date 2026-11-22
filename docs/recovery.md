@@ -1,55 +1,55 @@
-# Backup i odzyskiwanie
+# Backup and recovery
 
-> Backup zapisuje jeden punkt odzyskiwania w dwóch miejscach: udziały B na kartę zapasową i udziały A do iCloud Drive (S008). Każdy z trzech nośników (SSD, karta robocza, karta zapasowa) można stracić pojedynczo. Odzyskujesz stan z **ostatniego punktu READY**; zmiany późniejsze przepadają.
+> Backup writes one recovery point in two places: B shares to the spare card and A shares to iCloud Drive (S008). Each of the three media (SSD, working card, spare card) can be lost one at a time. You recover the state from the **last READY recovery point**; later changes are lost.
 
-| Utracone | Odzyskujesz z |
+| Lost | You recover from |
 | --- | --- |
-| karta robocza | A na SSD + karta zapasowa |
-| SSD | kopia A w iCloud + karta zapasowa albo robocza |
-| karta zapasowa | nic nie ginie; zrób nowy backup |
+| working card | A on the SSD + spare card |
+| SSD | share A copy in iCloud Drive + spare or working card |
+| spare card | nothing is lost; make a new backup |
 
-## Backup (np. co tydzień)
+## Backup (e.g. weekly)
 
-Sejf musi być odmontowany. Obie karty podłączone jednocześnie (druga przez czytnik USB).
+The vault must be unmounted. Both cards connected at the same time (the second through a USB reader).
 
 ```bash
 xordock snapshot create --name sejf
 xordock backup --name sejf --spare /Volumes/ZAPAS
-xordock status --name sejf      # data ostatniego punktu READY i liczba zmian od niego
+xordock status --name sejf      # date of the last READY recovery point and the number of changes since then
 ```
 
-- Udziały A tej samej migawki trafiają do `iCloud Drive/xordock/<nazwa>` (`~/Library/Mobile Documents/com~apple~CloudDocs/xordock/<nazwa>`). `--no-icloud` pomija tę kopię. Konto iCloud + dowolna karta B to komplet: włącz 2FA i Advanced Data Protection, a karty trzymaj osobno.
-- Kopiowane są tylko brakujące udziały migawki; nic nie jest usuwane ani nadpisywane. Przy braku miejsca backup odmawia i poprzedni punkt zostaje.
-- Migawka z punktem jest przypięta: jej udziały A zostają na SSD.
-- Retencja (świadoma decyzja): `xordock backup prune --name sejf --spare /Volumes/ZAPAS` zostawia tylko najnowszy, sprawdzony punkt, na karcie i w iCloud. Potem stare migawki można usunąć: `xordock snapshot rm --id …`.
+- The A shares of the same snapshot go to `iCloud Drive/xordock/<name>` (`~/Library/Mobile Documents/com~apple~CloudDocs/xordock/<name>`). `--no-icloud` skips this copy. The iCloud account + any B card is a complete set: enable 2FA and Advanced Data Protection, and keep the cards separately.
+- Only the snapshot's missing shares are copied; nothing is deleted or overwritten. If there is not enough space, the backup refuses and the previous point remains.
+- The snapshot with a point is pinned: its A shares stay on the SSD.
+- Retention (a deliberate decision): `xordock backup prune --name sejf --spare /Volumes/ZAPAS` keeps only the newest verified point, on the card and in iCloud. After that old snapshots can be deleted: `xordock snapshot rm --id …`.
 
-## Po utracie karty roboczej
+## After losing the working card
 
 ```bash
 xordock recover --name sejf --spare /Volumes/ZAPAS list
 xordock recover --name sejf --spare /Volumes/ZAPAS verify
 xordock recover --name sejf --spare /Volumes/ZAPAS restore --card /Volumes/NOWA
-# albo jawny eksport (pliki NIE są chronione):
+# or a plaintext export (the files are NOT protected):
 xordock recover --name sejf --spare /Volumes/ZAPAS export --to /Volumes/DYSK/odzysk
 ```
 
-- `restore` tworzy nowy sejf `<nazwa>-odzyskany` z **nowymi maskami** na nowej karcie. Karta zapasowa i stary udział A zostają nietknięte.
-- Zgubioną kartę traktuj jako skopiowaną. Po sprawdzeniu nowego sejfu usuń **wszystkie kopie starego udziału A**, bo każda z nich razem ze zgubioną kartą daje komplet:
-  - `~/Library/Application Support/xordock/<nazwa>` na SSD;
-  - `iCloud Drive/xordock/<nazwa>`, potem opróżnij „Ostatnio usunięte” w iCloud (iCloud.com → Drive), bo pliki leżą tam jeszcze 30 dni;
-  - kopie w Time Machine (`tmutil delete` albo usunięcie w Time Machine).
-- Ta sama zasada obowiązuje po zgubieniu **karty zapasowej**: odtwórz sejf do nowego (`restore`, nowe maski) i usuń wszystkie kopie starego A.
-- Po odzyskaniu zrób nową migawkę i backup nowego sejfu na kartę zapasową (inny katalog na karcie, bo nowy sejf ma inną nazwę).
+- `restore` creates a new vault `<name>-recovered` with **new masks** on the new card. The spare card and the old share A are left untouched.
+- Treat the lost card as copied. After checking the new vault, delete **all copies of the old share A**, because each of them together with the lost card makes a complete set:
+  - `~/Library/Application Support/xordock/<name>` on the SSD;
+  - `iCloud Drive/xordock/<name>`, then empty "Recently Deleted" in iCloud (iCloud.com → Drive), because the files stay there for another 30 days;
+  - copies in Time Machine (`tmutil delete` or deletion in Time Machine).
+- The same rule applies after losing the **spare card**: restore the vault into a new one (`restore`, new masks) and delete all copies of the old A.
+- After recovery, take a new snapshot and back up the new vault to the spare card (a different directory on the card, because the new vault has a different name).
 
-Biurko i Dokumenty bywają synchronizowane z iCloud. Jawny eksport kieruj poza nie, bo inaczej pliki trafią do chmury bez ochrony.
+Desktop and Documents are sometimes synced with iCloud. Direct a plaintext export outside them, otherwise the files will end up in the cloud without protection.
 
-## Po utracie SSD (albo nowym Macu)
+## After losing the SSD (or on a new Mac)
 
 ```bash
 xordock recover --from-icloud --name sejf --spare /Volumes/ZAPAS verify
 xordock recover --from-icloud --name sejf --spare /Volumes/ZAPAS restore --card /Volumes/NOWA --new-name sejf
 ```
 
-- Udział A pochodzi z kopii w iCloud Drive. Gdy karta zapasowa też zginęła, w `--spare` podaj kartę roboczą.
-- W aplikacji: sekcja „Kopie A w iCloud bez SSD” → „Odzyskiwanie…”.
-- Odzyskiwanie niczego nie zmienia w kopii A. `restore` tworzy nowy sejf z nowymi maskami. Po sprawdzeniu zrób backup nowego sejfu.
+- Share A comes from the copy in iCloud Drive. If the spare card was lost too, pass the working card in `--spare`.
+- In the app: the "Share A copies in iCloud without SSD" section → "Recovery…".
+- Recovery changes nothing in the A copy. `restore` creates a new vault with new masks. After checking it, back up the new vault.

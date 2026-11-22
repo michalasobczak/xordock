@@ -8,22 +8,22 @@ import (
 	"xordock/internal/fusefs"
 )
 
-// Probe sprawdza, czy macFUSE z backendem FSKit faktycznie montuje (S011
-// W-03): montuje pusty wolumen bez sejfu w katalogu tymczasowym i od razu
-// go odmontowuje. Stanu rozszerzenia FSKit nie da się odczytać inaczej
-// (chroniony kontener systemu).
+// Probe checks whether macFUSE with the FSKit backend actually mounts (S011
+// W-03): it mounts an empty volume without a vault in a temporary directory and
+// unmounts it right away. The FSKit extension state cannot be read any other way
+// (protected system container).
 func Probe(timeout time.Duration) error {
 	if !Available() {
 		return ErrNoMacFUSE
 	}
-	mp, err := os.MkdirTemp("", "xordock-sprawdzenie-")
+	mp, err := os.MkdirTemp("", "xordock-probe-")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(mp)
 	errc := make(chan error, 1)
 	go func() {
-		errc <- run(fusefs.NewProbe(), mp, "backend=fskit,volname=xordock-sprawdzenie,fsname=xordock")
+		errc <- run(fusefs.NewProbe(), mp, "backend=fskit,volname=xordock-probe,fsname=xordock")
 	}()
 	deadline := time.After(timeout)
 	tick := time.NewTicker(100 * time.Millisecond)
@@ -32,7 +32,7 @@ func Probe(timeout time.Duration) error {
 		select {
 		case err := <-errc:
 			if err == nil {
-				err = errMount // pętla skończyła się, zanim wolumen się pojawił
+				err = errMount // the loop ended before the volume appeared
 			}
 			return err
 		case <-tick.C:
@@ -48,7 +48,7 @@ func Probe(timeout time.Duration) error {
 		case <-deadline:
 			unmount(mp, true)
 			exitLoop()
-			return fmt.Errorf("%w (brak wolumenu po %v)", errMount, timeout)
+			return fmt.Errorf("%w (no volume after %v)", errMount, timeout)
 		}
 	}
 }

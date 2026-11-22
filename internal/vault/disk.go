@@ -7,9 +7,9 @@ import (
 	"syscall"
 )
 
-// fullSync utrwala plik na nośniku. Na macOS fsync nie opróżnia cache
-// dysku; F_FULLFSYNC to robi. Gdy system plików go nie obsługuje (np. część
-// sterowników FAT), wracamy do zwykłego fsync.
+// fullSync syncs a file to the medium. On macOS fsync does not flush the disk
+// cache; F_FULLFSYNC does. When the file system does not support it (e.g. some
+// FAT drivers), we fall back to a plain fsync.
 func fullSync(f *os.File) error {
 	if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_FULLFSYNC, 0); errno == 0 {
 		return nil
@@ -17,8 +17,8 @@ func fullSync(f *os.File) error {
 	return f.Sync()
 }
 
-// syncDir utrwala wpis katalogu po rename. Błąd ignorujemy, bo nie każdy
-// system plików pozwala na fsync katalogu; rename i tak jest po fsync pliku.
+// syncDir syncs a directory entry after rename. The error is ignored because not every
+// file system allows fsync on a directory; rename comes after the file fsync anyway.
 func syncDir(dir string, full bool) {
 	if d, err := os.Open(dir); err == nil {
 		if full {
@@ -30,10 +30,10 @@ func syncDir(dir string, full bool) {
 	}
 }
 
-// writeAtomic zapisuje plik przez plik tymczasowy, fsync i rename, więc po
-// awarii zostaje stara albo nowa wersja, nigdy połowa. full=true wymusza
-// F_FULLFSYNC (opróżnienie cache nośnika); dla obiektów robimy jeden
-// barrier() na nośnik przed zapisem superbloku, co jest znacznie szybsze.
+// writeAtomic writes a file via a temporary file, fsync and rename, so after
+// a crash the old or the new version remains, never half. full=true forces
+// F_FULLFSYNC (flushing the medium cache); for objects we do a single
+// barrier() per medium before writing the superblock, which is much faster.
 func writeAtomic(path string, data []byte, full bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -69,12 +69,12 @@ func writeAtomic(path string, data []byte, full bool) error {
 	if full {
 		syncDir(dir, true)
 	}
-	// bez full: wpis katalogu utrwala commit (syncDirs) przed barierą
+	// without full: the commit syncs the directory entry (syncDirs) before the barrier
 	return nil
 }
 
-// barrier opróżnia cache nośnika, na którym leży root (F_FULLFSYNC działa
-// na całe urządzenie). Wywoływany przed zapisem superbloku.
+// barrier flushes the cache of the medium holding root (F_FULLFSYNC works
+// on the whole device). Called before writing the superblock.
 func barrier(root string) error {
 	f, err := os.Open(root)
 	if err != nil {
@@ -84,7 +84,7 @@ func barrier(root string) error {
 	return fullSync(f)
 }
 
-// devOf zwraca numer urządzenia, na którym leży ścieżka (-1 przy błędzie).
+// devOf returns the device number holding the path (-1 on error).
 func devOf(p string) int64 {
 	var st syscall.Stat_t
 	if err := syscall.Stat(p, &st); err != nil {
@@ -93,9 +93,9 @@ func devOf(p string) int64 {
 	return int64(st.Dev)
 }
 
-// lockRoot zakłada wyłączną blokadę sejfu (flock na pliku w udziale A).
-// Dwa procesy na jednym sejfie to ryzyko: GC jednego usunąłby obiekty,
-// które drugi właśnie zapisuje.
+// lockRoot takes an exclusive vault lock (flock on a file in share A).
+// Two processes on one vault are a risk: the GC of one would delete objects
+// that the other is just writing.
 func lockRoot(root string) (*os.File, error) {
 	f, err := os.OpenFile(filepath.Join(root, "lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -103,7 +103,7 @@ func lockRoot(root string) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		f.Close()
-		return nil, errors.New("sejf jest już otwarty przez inny proces xordock")
+		return nil, errors.New("vault is already open in another xordock process")
 	}
 	return f, nil
 }

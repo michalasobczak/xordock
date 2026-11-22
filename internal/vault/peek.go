@@ -5,23 +5,23 @@ import (
 	"time"
 )
 
-// Summary to stan sejfu do wyświetlenia w aplikacji (S007 U-01).
+// Summary is the vault state shown in the app (S007 U-01).
 type Summary struct {
 	Seq        uint64
 	Snapshots  int
 	LastBackup *PointRef
 	BackupSnap *Snapshot
-	Changes    int // ścieżki zmienione od migawki ostatniego backupu
+	Changes    int // paths changed since the last backup's snapshot
 }
 
-// ErrBusy: superbloki A i B wskazują różne commity (commit w toku albo
-// przerwany). Peek niczego nie naprawia; zrobi to Open.
-var ErrBusy = errors.New("sejf w trakcie zapisu; stan chwilowo niedostępny")
+// ErrBusy: superblocks A and B point to different commits (commit in progress or
+// interrupted). Peek repairs nothing; Open will do that.
+var ErrBusy = errors.New("vault is being written; state temporarily unavailable")
 
-// Peek czyta stan sejfu tylko do odczytu: bez blokady, bez odzyskiwania po
-// awarii i bez GC. Działa także, gdy sejf jest zamontowany przez inny proces
-// (S007 §5). Wszystkie obiekty są niezmienne; jeśli GC montującego usunie
-// czytany indeks, Peek zwraca błąd, nigdy nieprawdziwy stan.
+// Peek reads the vault state read-only: no lock, no crash recovery
+// and no GC. It works even when the vault is mounted by another process
+// (S007 §5). All objects are immutable; if the mounting process's GC deletes
+// the index being read, Peek returns an error, never a false state.
 func Peek(aRoot, bRoot string) (Summary, error) {
 	var s Summary
 	hA, err := readHeader(aRoot, SideA)
@@ -72,7 +72,7 @@ func Peek(aRoot, bRoot string) (Summary, error) {
 	return s, nil
 }
 
-// BackupDue: brak punktu READY albo ostatni starszy niż tydzień (S004 B-01).
+// BackupDue: no READY point or the last one is older than a week (S004 B-01).
 func (s Summary) BackupDue(now time.Time) bool {
 	return s.LastBackup == nil || now.Sub(s.LastBackup.Time) > 7*24*time.Hour
 }

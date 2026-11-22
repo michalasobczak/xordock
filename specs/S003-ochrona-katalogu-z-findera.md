@@ -1,43 +1,43 @@
-# S003 — Ochrona katalogu z poziomu Findera
+# S003 — Protecting a folder from Finder
 
-- **Status:** szkic — zgłoszenie właściciela, wymaga sesji specyfikacyjnej
-- **Data:** 2026-11-22
-- **Powiązane:** S001, S002
+- **Status:** draft — owner's request, requires a spec session
+- **Date:** 2026-11-22
+- **Related:** S001, S002
 
 ## 1. TL;DR
 
-Użytkownik zaznacza katalog w Finderze i z menu kontekstowego wybiera „Chroń kartą SD (xordock)”. Katalog trafia do sejfu, a jego miejsce zajmuje zamontowany chroniony katalog. Bez terminala.
+The user selects a folder in Finder and chooses "Protect with SD card (xordock)" from the context menu. The folder goes into a vault, and its place is taken by the mounted protected folder. No terminal.
 
 ## 2. Abstract
 
-Pytanie właściciela (2026-11-22): „jak mogę zaznaczyć katalog i wybrać szyfrowanie na karcie SD jako kluczu, czy jest tylko opcja z cmd?”. W S001 jedyną drogą jest CLI (`xordock init/mount`), a sejf zaczyna jako pusty katalog.
+Owner's question (2026-11-22): "how can I select a folder and choose encryption with the SD card as the key, or is there only the cmd option?". In S001 the only route is the CLI (`xordock init/mount`), and the vault starts as an empty folder.
 
-Przeniesienie **istniejącego** katalogu ma ważny skutek: oryginalne jawne pliki zostają w wolnych blokach SSD po usunięciu. Na APFS/SSD nie da się ich pewnie nadpisać (copy-on-write, TRIM). Ochronę zapewnia tylko FileVault. Specyfikacja musi powiedzieć to użytkownikowi wprost, zanim zgodzi się na import (G-06, FR-24).
+Moving an **existing** folder has an important consequence: the original plaintext files remain in free SSD blocks after deletion. On APFS/SSD they cannot be reliably overwritten (copy-on-write, TRIM). Only FileVault provides protection. The spec must tell the user this explicitly before they agree to the import (G-06, FR-24).
 
 ## 3. Objective
 
-- **Cele:** akcja Findera (Quick Action / Usługa) „Chroń kartą SD”; import katalogu do nowego albo istniejącego sejfu; montowanie w tym samym miejscu; akcje „Odmontuj” i „Zamontuj” bez terminala; aplikacja w pasku menu pokazująca stan sejfu i karty.
-- **Poza zakresem:** [DO USTALENIA]
-- **Kryteria sukcesu:** [DO USTALENIA]
+- **Goals:** a Finder action (Quick Action / Service) "Protect with SD card"; import of a folder into a new or existing vault; mounting in the same place; "Unmount" and "Mount" actions without the terminal; a menu bar app showing the state of the vault and the card.
+- **Out of scope:** [TO BE DECIDED]
+- **Success criteria:** [TO BE DECIDED]
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Kind | State |
 | --- | --- | --- |
-| `xordock import` (CLI) | kod | do utworzenia |
-| Quick Action Findera (Automator `.workflow` wywołujący CLI) | kod | do utworzenia |
-| Aplikacja w pasku menu (montowanie w tle, stan karty) | kod | [DO USTALENIA] (zależy od S002: FSKit daje to naturalnie) |
+| `xordock import` (CLI) | code | to be created |
+| Finder Quick Action (Automator `.workflow` calling the CLI) | code | to be created |
+| Menu bar app (mounting in the background, card state) | code | [TO BE DECIDED] (depends on S002: FSKit provides this naturally) |
 
 ## 5. Functional Domain Changes
 
-[DO USTALENIA]. Pytania do sesji:
+[TO BE DECIDED]. Questions for the session:
 
-1. Import: przenieść (oryginał usunięty, ale resztki na SSD) czy skopiować (oryginał zostaje, użytkownik usuwa sam)?
-2. Jeden sejf na kartę z wieloma katalogami czy osobny sejf na każdy katalog?
-3. Czy chroniony katalog ma się montować w miejscu oryginału (np. `~/Documents/Umowy`), czy w `~/xordock/<nazwa>`?
-4. Czy montowanie po włożeniu karty ma być automatyczne?
-5. Kolejność względem S002: menu w Finderze można zrobić od razu na WebDAV (Automator, bez Xcode), aplikację w pasku menu lepiej po decyzji FSKit.
+1. Import: move (original deleted, but remnants on the SSD) or copy (original stays, the user deletes it themselves)?
+2. One vault per card with many folders, or a separate vault for each folder?
+3. Should the protected folder be mounted in the place of the original (e.g. `~/Documents/Umowy`), or in `~/xordock/<name>`?
+4. Should mounting after inserting the card be automatic?
+5. Order relative to S002: the Finder menu can be done right away on WebDAV (Automator, no Xcode); the menu bar app is better after the FSKit decision.
 
 ## 6–9.
 
-Do uzupełnienia na sesji specyfikacyjnej.
+To be completed in the spec session.

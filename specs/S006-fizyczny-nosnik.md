@@ -1,66 +1,66 @@
-# S006 — Udziały A i B na różnych fizycznych nośnikach
+# S006 — Shares A and B on different physical devices
 
-- **Status:** szkic (decyzje właściciela zebrane 2026-11-22; implementacja po S007)
-- **Data:** 2026-11-22
-- **Powiązane:** S004 (D-01, B-03), S005, S007
+- **Status:** draft (owner's decisions collected 2026-11-22; implementation after S007)
+- **Date:** 2026-11-22
+- **Related:** S004 (D-01, B-03), S005, S007
 
 ## 1. TL;DR
 
-xordock ma odmawiać pracy, gdy udział A, karta robocza B albo karta zapasowa leżą na tym samym **fizycznym** dysku. Dziś porównywany jest tylko numer woluminu (`st_dev`). Wynik potwierdzą testy z podstawionym rozpoznawaniem dysku i test na obrazie dysku leżącym na SSD.
+xordock must refuse to work when share A, the working card B or the spare card lie on the same **physical** disk. Today only the volume number (`st_dev`) is compared. The result will be confirmed by tests with substituted disk detection and a test with a disk image located on the SSD.
 
 ## 2. Abstract
 
-`vault.Create` i `prepareSpare` porównują `st_dev` ścieżek. Każdy wolumin ma własny numer, więc kontrolę przechodzą:
+`vault.Create` and `prepareSpare` compare the `st_dev` of the paths. Each volume has its own number, so the following pass the check:
 
-- obraz `.dmg` albo sparsebundle leżący na SSD obok A. Potwierdzone 2026-11-22: `init` przyjął B na obrazie z `scratchpad`;
-- druga partycja albo drugi wolumin APFS na tym samym dysku;
-- drugi wolumin na tym samym pendrivie, użyty jako karta zapasowa.
+- a `.dmg` image or sparsebundle lying on the SSD next to A. Confirmed 2026-11-22: `init` accepted B on an image in `scratchpad`;
+- a second partition or second APFS volume on the same disk;
+- a second volume on the same USB stick, used as the spare card.
 
-Do tego wynik sprawdzenia jest ignorowany (`same, _ := sameDevice(...)`). Gdy `MkdirAll` w `/Volumes` się nie uda, kontrola przepuszcza (fail-open), a `Create` zdąży zapisać nagłówek A, zanim zapis B się wyłoży. Zdarzyło się to właścicielowi przy literówce w nazwie woluminu: został osierocony `xordock.json` w A. Ta sama literówka uruchomiona z `sudo` utworzyła katalog `/Volumes/<literówka>` na dysku systemowym. Uruchamianie jako root zostawia też pliki A należące do roota.
+In addition, the check result is ignored (`same, _ := sameDevice(...)`). When `MkdirAll` in `/Volumes` fails, the check lets it through (fail-open), and `Create` manages to write the A header before writing B fails. This happened to the owner with a typo in the volume name: an orphaned `xordock.json` was left in A. The same typo run with `sudo` created a `/Volumes/<typo>` folder on the system disk. Running as root also leaves A files owned by root.
 
-Kontrola działa tylko przy `init` i backupie. B przeniesione później na SSD (skopiowany katalog) otwiera się bez sprzeciwu.
+The check runs only at `init` and backup. B moved to the SSD later (a copied folder) opens without objection.
 
 ## 3. Objective
 
-- **Cele (decyzje właściciela 2026-11-22):**
-  - **Kiedy:** zawsze. Przy `init`, przy każdym otwarciu sejfu (mount, status, fsck, snapshot, export, backup), przy backupie (zapasowa ≠ dysk A i ≠ dysk B) i przy `recover` (zapasowa ≠ dysk A, nowa karta ≠ dysk A).
-  - **Obrazy dysku:** wyznaczamy fizyczny dysk, na którym leży plik obrazu, i porównujemy go jak zwykły nośnik.
-  - **Nośnik nieustalony** (wolumin sieciowy, iCloud, błąd `diskutil`): odmowa (fail-closed).
-  - **Obejście:** brak. Kontrolę wyłączają tylko testy jednostkowe w kodzie `_test.go`.
-  - Brak skutków ubocznych przy odmowie: żadnych katalogów w `/Volumes` na dysku systemowym, żadnego nagłówka A.
-  - Propozycja do potwierdzenia: odmowa pracy jako root (`euid == 0`).
-- **Poza zakresem:** wykrywanie, że dwa różne fizyczne dyski są w jednej obudowie lub RAID.
-- **Kryteria sukcesu:** bramki z §7 przechodzą.
+- **Goals (owner's decisions 2026-11-22):**
+  - **When:** always. At `init`, at every vault open (mount, status, fsck, snapshot, export, backup), at backup (spare ≠ disk A and ≠ disk B) and at `recover` (spare ≠ disk A, new card ≠ disk A).
+  - **Disk images:** we determine the physical disk on which the image file lies and compare it like an ordinary device.
+  - **Undetermined device** (network volume, iCloud, `diskutil` error): refusal (fail-closed).
+  - **Override:** none. Only unit tests in `_test.go` code disable the check.
+  - No side effects on refusal: no folders in `/Volumes` on the system disk, no A header.
+  - Proposal to be confirmed: refuse to work as root (`euid == 0`).
+- **Out of scope:** detecting that two different physical disks are in one enclosure or RAID.
+- **Success criteria:** the gates from §7 pass.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Kind | State |
 | --- | --- | --- |
-| `internal/vault/media.go` | kod: fizyczny dysk ścieżki (statfs → diskutil → APFS physical store → hdiutil image-path) | do utworzenia |
-| `internal/vault/vault.go`, `backup.go`, `recovery.go` | kod | do zmiany |
-| `cmd/xordock/main.go` | kod: `--card` musi być punktem montowania | do zmiany |
+| `internal/vault/media.go` | code: physical disk of a path (statfs → diskutil → APFS physical store → hdiutil image-path) | to be created |
+| `internal/vault/vault.go`, `backup.go`, `recovery.go` | code | to be changed |
+| `cmd/xordock/main.go` | code: `--card` must be a mount point | to be changed |
 
 ## 5. Functional Domain Changes
 
-[DO USTALENIA przy implementacji. Zasada: identyfikator fizycznego dysku = whole disk po rozwinięciu APFS physical store i plików obrazów, z ograniczoną głębokością rekurencji.]
+[TO BE DECIDED during implementation. Principle: physical disk identifier = whole disk after expanding the APFS physical store and image files, with limited recursion depth.]
 
 ## 6. Critical Path
 
-[DO USTALENIA]
+[TO BE DECIDED]
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek | Weryfikacja | Blokuje |
+| # | Gate | Condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | B na obrazie na SSD | odmowa | test darwin z `hdiutil` | commit |
-| G2 | Błąd rozpoznania | odmowa, nic nie zapisane | test z podstawionym resolverem | commit |
-| G3 | Open sprawdza A ≠ B | odmowa | test | commit |
-| G4 | Literówka w `--card` | odmowa bez tworzenia katalogu w `/Volumes` | test CLI | commit |
+| G1 | B on an image on the SSD | refusal | darwin test with `hdiutil` | commit |
+| G2 | Detection error | refusal, nothing written | test with a substituted resolver | commit |
+| G3 | Open checks A ≠ B | refusal | test | commit |
+| G4 | Typo in `--card` | refusal without creating a folder in `/Volumes` | CLI test | commit |
 
 ## 8. Expected Outcome
 
-Nie da się, nawet przez pomyłkę, trzymać A i B na jednym fizycznym nośniku.
+It is impossible, even by mistake, to keep A and B on one physical device.
 
 ## 9. Additional Information
 
-Kolejność: właściciel zdecydował, że najpierw powstaje aplikacja (S007).
+Order: the owner decided that the app (S007) comes first.

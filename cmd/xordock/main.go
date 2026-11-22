@@ -1,5 +1,5 @@
-// xordock: chroniony katalog macOS przechowywany jako dwa udziały XOR,
-// A na SSD Maca i B na karcie SD. Zob. specs/S004-xordock-macos-mvp.md.
+// xordock: a protected macOS folder stored as two XOR shares,
+// A on the Mac's SSD and B on an SD card. See specs/S004-xordock-macos-mvp.md.
 package main
 
 import (
@@ -14,32 +14,32 @@ import (
 	"xordock/internal/vault"
 )
 
-const usage = `xordock — katalog w Finderze, dane podzielone XOR między SSD i kartę SD
+const usage = `xordock — a folder in Finder, data split by XOR between the SSD and an SD card
 
-Użycie (wspólne flagi: --name sejf, --a KATALOG_A):
-  xordock init     --card /Volumes/KARTA
-  xordock mount    [--at /Volumes/xordock-<name>]   katalog w Finderze (macFUSE, backend FSKit)
+Usage (common flags: --name VAULT, --a DIR_A):
+  xordock init     --card /Volumes/CARD
+  xordock mount    [--at /Volumes/xordock-<name>]   folder in Finder (macFUSE, FSKit backend)
   xordock unmount  [--at …]
-  xordock status                                    karta, migawki, ostatni backup, co może przepaść
+  xordock status                                    card, snapshots, last backup, what could be lost
   xordock fsck
-  xordock export   --to KATALOG                     jawne pliki, NIE są już chronione
+  xordock export   --to DIR                         plain files, NO longer protected
   xordock snapshot create | list | rm --id ID
-  xordock backup   --spare /Volumes/ZAPASOWA [--snapshot ID] [--no-icloud]
-                   B na kartę zapasową + A do iCloud Drive (ten sam punkt)
-  xordock backup   prune --spare /Volumes/ZAPASOWA  zostawia tylko najnowszy punkt (karta i iCloud)
-  xordock recover  --spare /Volumes/ZAPASOWA list | verify | export --to KATALOG |
-                   restore --card /Volumes/NOWA [--new-name NAZWA]   [--point ID]
-  xordock recover  --from-icloud --spare /Volumes/KARTA …   po utracie SSD: A z iCloud,
-                   B z karty zapasowej albo roboczej
+  xordock backup   --spare /Volumes/SPARE [--snapshot ID] [--no-icloud]
+                   B to the spare card + A to iCloud Drive (same point)
+  xordock backup   prune --spare /Volumes/SPARE     keeps only the newest point (card and iCloud)
+  xordock recover  --spare /Volumes/SPARE list | verify | export --to DIR |
+                   restore --card /Volumes/NEW [--new-name NAME]   [--point ID]
+  xordock recover  --from-icloud --spare /Volumes/CARD …   after losing the SSD: A from iCloud,
+                   B from the spare or working card
 
-Wymagania: xordock doctor [--probe-mount] [--json]
+Requirements: xordock doctor [--probe-mount] [--json]
 
-Zapytania dla aplikacji (JSON):
-  xordock vaults | volumes | points --spare /Volumes/ZAPASOWA
+Queries for the app (JSON):
+  xordock vaults | volumes | points --spare /Volumes/SPARE
 
-Udział A domyślnie: ~/Library/Application Support/xordock/<name>
-Udział B: <karta>/xordock/<name>, rozpoznawany po identyfikatorze sejfu.
-Backup wymaga karty roboczej i zapasowej podłączonych jednocześnie.
+Share A by default: ~/Library/Application Support/xordock/<name>
+Share B: <card>/xordock/<name>, recognized by the vault ID.
+Backup requires the working card and the spare card connected at the same time.
 `
 
 func main() {
@@ -96,14 +96,14 @@ type common struct {
 
 func (c *common) bind(fl *flag.FlagSet) {
 	c.name = "sejf"
-	fl.Func("name", "nazwa sejfu (domyślnie sejf)", func(s string) error {
+	fl.Func("name", "vault name (default sejf)", func(s string) error {
 		if err := validName(s); err != nil {
 			return err
 		}
 		c.name = s
 		return nil
 	})
-	fl.StringVar(&c.a, "a", "", "katalog udziału A (domyślnie w Application Support)")
+	fl.StringVar(&c.a, "a", "", "share A directory (default: in Application Support)")
 }
 
 func (c *common) aRoot() string {
@@ -113,49 +113,49 @@ func (c *common) aRoot() string {
 	return filepath.Join(home(), "Library", "Application Support", "xordock", c.name)
 }
 
-// validName: nazwa sejfu jest składnikiem ścieżek A, B i punktu montowania,
-// więc nie może zawierać separatora ani zaczynać się kropką (S007, ta sama
-// reguła co w aplikacji).
+// validName: the vault name is a component of the A, B and mount point paths,
+// so it cannot contain a separator or start with a dot (S007, the same
+// rule as in the app).
 func validName(s string) error {
 	switch {
 	case s == "":
-		return errors.New("pusta nazwa sejfu")
+		return errors.New("empty vault name")
 	case len([]rune(s)) > 64:
-		return errors.New("nazwa sejfu dłuższa niż 64 znaki")
+		return errors.New("vault name longer than 64 characters")
 	case strings.HasPrefix(s, "."):
-		return errors.New("nazwa sejfu nie może zaczynać się kropką")
+		return errors.New("vault name cannot start with a dot")
 	case strings.ContainsAny(s, "/:"):
-		return errors.New("nazwa sejfu nie może zawierać „/” ani „:”")
+		return errors.New("vault name cannot contain \"/\" or \":\"")
 	case strings.TrimSpace(s) != s:
-		return errors.New("nazwa sejfu nie może zaczynać się ani kończyć spacją")
+		return errors.New("vault name cannot start or end with a space")
 	}
 	for _, r := range s {
 		if r < 0x20 || r == 0x7f {
-			return errors.New("nazwa sejfu zawiera znak sterujący")
+			return errors.New("vault name contains a control character")
 		}
 	}
 	return nil
 }
 
-// iCloudDrive: katalog iCloud Drive użytkownika (S008, miejsce na sztywno).
+// iCloudDrive: the user's iCloud Drive directory (S008, fixed location).
 func iCloudDrive() string {
 	return filepath.Join(home(), "Library", "Mobile Documents", "com~apple~CloudDocs")
 }
 
 func iCloudAvailable() bool { return exists(iCloudDrive()) }
 
-// aCopyDir: kopia udziału A sejfu w iCloud Drive.
+// aCopyDir: the vault's share A copy in iCloud Drive.
 func aCopyDir(name string) string { return filepath.Join(iCloudDrive(), "xordock", name) }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
 
-const adpWarning = "Kopia udziału A trafia do iCloud Drive. Konto iCloud + dowolna karta B = komplet: włącz 2FA i Advanced Data Protection, trzymaj karty osobno."
+const adpWarning = "The share A copy goes to iCloud Drive. iCloud account + any B card = the full set: turn on 2FA and Advanced Data Protection, keep the cards separate."
 
 func warnings() {
-	fmt.Println("Maski:", split.Kind(split.CSPRNG{}))
+	fmt.Println("Masks:", split.Kind(split.CSPRNG{}))
 }
 
-// subcommand zdejmuje pierwsze słowo bez myślnika (np. "create").
+// subcommand takes the first word without a dash (e.g. "create").
 func subcommand(args []string) (string, []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		return args[0], args[1:]
@@ -167,47 +167,47 @@ func cmdInit(args []string) error {
 	fl := flag.NewFlagSet("init", flag.ExitOnError)
 	var c common
 	c.bind(fl)
-	card := fl.String("card", "", "wolumen karty SD, np. /Volumes/xordock")
+	card := fl.String("card", "", "SD card volume, e.g. /Volumes/xordock")
 	fl.Parse(args)
 	if *card == "" {
-		return errors.New("podaj --card")
+		return errors.New("--card is required")
 	}
 	if !strings.HasPrefix(filepath.Clean(*card), "/Volumes/") {
-		return errors.New("--card musi wskazywać wolumen w /Volumes")
+		return errors.New("--card must point to a volume in /Volumes")
 	}
 	bRoot := filepath.Join(*card, "xordock", c.name)
 	v, err := vault.Create(c.aRoot(), bRoot, c.name, vault.Options{})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Utworzono sejf %q (%s)\n  A: %s\n  B: %s\n", c.name, v.ID(), c.aRoot(), bRoot)
+	fmt.Printf("Created vault %q (%s)\n  A: %s\n  B: %s\n", c.name, v.ID(), c.aRoot(), bRoot)
 	warnings()
-	fmt.Println("Bez karty danych nie da się odtworzyć. Utrata karty = utrata danych (zrób kopię katalogu z karty na drugą kartę).")
+	fmt.Println("Data cannot be restored without the card. Losing the card = losing the data (copy the folder from the card to a second card).")
 	return nil
 }
 
-// findB szuka karty roboczej sejfu na podłączonych wolumenach po
-// identyfikatorze sejfu, nie po nazwie wolumenu. Karty zapasowe pomija.
+// findB looks for the vault's working card on connected volumes by
+// vault ID, not by volume name. Skips spare cards.
 func findB(aRoot string) (string, error) {
 	id, name, err := vault.ReadVaultID(aRoot)
 	if err != nil {
-		return "", fmt.Errorf("udział A: %w", err)
+		return "", fmt.Errorf("share A: %w", err)
 	}
 	for _, c := range vault.FindCards("/Volumes", id) {
 		if c.Role == "" {
 			return c.Root, nil
 		}
 	}
-	return "", fmt.Errorf("nie znaleziono karty roboczej sejfu %q (%s); podłącz właściwą kartę", name, id)
+	return "", fmt.Errorf("working card for vault %q (%s) not found; connect the right card", name, id)
 }
 
-// spareRoot zwraca katalog sejfu na karcie zapasowej.
+// spareRoot returns the vault directory on the spare card.
 func spareRoot(volume, name string) (string, error) {
 	if volume == "" {
-		return "", errors.New("podaj --spare /Volumes/KARTA_ZAPASOWA")
+		return "", errors.New("--spare /Volumes/SPARE_CARD is required")
 	}
 	if !strings.HasPrefix(filepath.Clean(volume), "/Volumes/") {
-		return "", errors.New("--spare musi wskazywać wolumen w /Volumes")
+		return "", errors.New("--spare must point to a volume in /Volumes")
 	}
 	return filepath.Join(volume, "xordock", name), nil
 }
@@ -222,7 +222,7 @@ func open(c common) (*vault.Vault, error) {
 		return nil, err
 	}
 	if v.Recovery != "" {
-		fmt.Println("Odzyskiwanie:", v.Recovery)
+		fmt.Println("Recovery:", v.Recovery)
 	}
 	return v, nil
 }
@@ -237,12 +237,12 @@ func cmdFsck(args []string) error {
 		return err
 	}
 	r := v.Fsck()
-	fmt.Printf("commit %d: %d plików, %d katalogów, %d B danych, %d obiektów\n", r.Seq, r.Files, r.Dirs, r.Bytes, r.Objects)
+	fmt.Printf("commit %d: %d files, %d directories, %d B of data, %d objects\n", r.Seq, r.Files, r.Dirs, r.Bytes, r.Objects)
 	for _, p := range r.Problems {
-		fmt.Println("BŁĄD:", p)
+		fmt.Println("ERROR:", p)
 	}
 	if !r.OK() {
-		return fmt.Errorf("wykryto %d problemów", len(r.Problems))
+		return fmt.Errorf("%d problems found", len(r.Problems))
 	}
 	fmt.Println("OK")
 	return nil
@@ -252,24 +252,24 @@ func cmdExport(args []string) error {
 	fl := flag.NewFlagSet("export", flag.ExitOnError)
 	var c common
 	c.bind(fl)
-	to := fl.String("to", "", "katalog docelowy (nie może istnieć)")
+	to := fl.String("to", "", "target directory (must not exist)")
 	fl.Parse(args)
 	if *to == "" {
-		return errors.New("podaj --to")
+		return errors.New("--to is required")
 	}
 	if _, err := os.Stat(*to); !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s już istnieje", *to)
+		return fmt.Errorf("%s already exists", *to)
 	}
 	v, err := open(c)
 	if err != nil {
 		return err
 	}
 	defer v.Close()
-	fmt.Println("UWAGA: wyeksportowane pliki NIE są chronione podziałem XOR.")
+	fmt.Println("WARNING: exported files are NOT protected by the XOR split.")
 	n, err := vault.ExportTo(v, *to)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Wyeksportowano %d plików do %s\n", n, *to)
+	fmt.Printf("Exported %d files to %s\n", n, *to)
 	return nil
 }

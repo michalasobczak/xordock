@@ -1,24 +1,24 @@
 import Foundation
 
-// Reguły aplikacji niezależne od UI (S007 §5), testowane w XordockCoreTests.
+// UI-independent app rules (S007 §5), tested in XordockCoreTests.
 
 public enum VaultName {
-    /// Nazwa sejfu staje się składnikiem ścieżki (A i B), więc nie może zawierać
-    /// separatora ani zaczynać się kropką. Ta sama reguła jest w CLI.
+    /// The vault name becomes a path component (A and B), so it must not contain
+    /// a separator or start with a dot. The same rule is in the CLI.
     public static func validate(_ s: String) -> String? {
         let t = s
-        if t.isEmpty { return "Podaj nazwę sejfu." }
-        if t.count > 64 { return "Nazwa może mieć najwyżej 64 znaki." }
-        if t.hasPrefix(".") { return "Nazwa nie może zaczynać się kropką." }
+        if t.isEmpty { return "Enter a vault name." }
+        if t.count > 64 { return "The name can be at most 64 characters." }
+        if t.hasPrefix(".") { return "The name can't start with a dot." }
         if t.contains("/") || t.contains(":") || t.unicodeScalars.contains(where: { $0.value < 0x20 }) {
-            return "Nazwa nie może zawierać „/”, „:” ani znaków sterujących."
+            return "The name can't contain \"/\", \":\" or control characters."
         }
-        if t != t.trimmingCharacters(in: .whitespaces) { return "Nazwa nie może zaczynać się ani kończyć spacją." }
+        if t != t.trimmingCharacters(in: .whitespaces) { return "The name can't start or end with a space." }
         return nil
     }
 }
 
-/// Argumenty poleceń CLI. Zawsze tablica, nigdy powłoka (S007 G4).
+/// CLI command arguments. Always an array, never a shell (S007 G4).
 public enum Commands {
     public static func vaults() -> [String] { ["vaults", "--json"] }
     public static func volumes() -> [String] { ["volumes", "--json"] }
@@ -54,8 +54,8 @@ public enum Attention: Equatable, Sendable {
 }
 
 public extension AppState {
-    /// Stan ikony w pasku menu: ostrzeżenie, gdy któryś sejf ma błąd albo
-    /// wymaga backupu (brak punktu READY lub starszy niż 7 dni, S004 B-01).
+    /// Menu bar icon state: warning when any vault has an error or
+    /// needs a backup (no READY point or older than 7 days, S004 B-01).
     var attention: Attention {
         if !fileVault || !orphanCopies.isEmpty
             || vaults.contains(where: { $0.error != nil || ($0.card != nil && ($0.backupDue || ($0.lastBackup != nil && !$0.hasACopy))) }) {
@@ -67,36 +67,36 @@ public extension AppState {
 }
 
 public extension VaultInfo {
-    /// Domyślna karta zapasowa: wolumin, na którym już jest karta zapasowa sejfu.
+    /// Default spare card: the volume that already holds the vault's spare card.
     func defaultSpare(in volumes: [VolumeInfo]) -> VolumeInfo? {
         let known = Set(spares.map(\.volume))
         return candidatesForSpare(in: volumes).first { known.contains($0.path) }
     }
 
-    /// Nośniki, na które wolno zrobić backup: zapisywalne, nie systemowe,
-    /// nie karta robocza tego sejfu.
+    /// Drives allowed as backup targets: writable, not system disks,
+    /// not this vault's working card.
     func candidatesForSpare(in volumes: [VolumeInfo]) -> [VolumeInfo] {
         volumes.filter { $0.usableAsCard && $0.path != cardVolume && !$0.vaults.contains { $0.id == id && !$0.isSpare } }
     }
 
-    /// Nośniki z kartą zapasową tego sejfu (do odzyskiwania).
+    /// Drives holding this vault's spare card (for recovery).
     func spareVolumes(in volumes: [VolumeInfo]) -> [VolumeInfo] {
         recoverySources(id: id, volumes: volumes, fromICloud: false)
     }
 
-    /// Jest kopia udziału A w iCloud z co najmniej jednym punktem READY.
+    /// There is a copy of share A in iCloud with at least one READY point.
     var hasACopy: Bool { (aCopy?.points ?? 0) > 0 }
 
     var statusLine: String {
-        if let e = error { return "Błąd: \(e)" }
-        if card == nil { return "Karta robocza niepodłączona" }
-        if mounted { return "Zamontowany" }
-        return "Gotowy do zamontowania"
+        if let e = error { return "Error: \(e)" }
+        if card == nil { return "Working card not connected" }
+        if mounted { return "Mounted" }
+        return "Ready to mount"
     }
 }
 
-/// Źródła udziału B do odzyskiwania: karta zapasowa sejfu, a przy A z iCloud
-/// (utrata SSD) także karta robocza (S008 K-04).
+/// Share B sources for recovery: the vault's spare card and, with A from iCloud
+/// (SSD lost), also the working card (S008 K-04).
 public func recoverySources(id: String, volumes: [VolumeInfo], fromICloud: Bool) -> [VolumeInfo] {
     volumes.filter { $0.vaults.contains { $0.id == id && ($0.isSpare || fromICloud) } }
 }

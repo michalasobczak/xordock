@@ -4,7 +4,7 @@ package split
 
 import "errors"
 
-// Fill poza macOS odmawia: produkt wspiera tylko macOS (S004 §4).
+// Fill refuses outside macOS: the product supports only macOS (S004 §4).
 func (CSPRNG) Fill(b []byte) error {
-	return errors.New("źródło masek dostępne tylko na macOS")
+	return errors.New("mask source is available only on macOS")
 }

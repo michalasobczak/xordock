@@ -1,7 +1,7 @@
 import Foundation
 
-// Model wyniku zapytań CLI (`xordock vaults|volumes|points`, S007 §5).
-// Pola nieznane są ignorowane; brakujące opcjonalne pola nie psują dekodowania.
+// Model of CLI query results (`xordock vaults|volumes|points`, S007 §5).
+// Unknown fields are ignored; missing optional fields don't break decoding.
 
 public struct AppState: Decodable, Equatable, Sendable {
     public var fileVault: Bool
@@ -30,7 +30,7 @@ public struct AppState: Decodable, Equatable, Sendable {
     }
 }
 
-/// Kopia udziału A w iCloud Drive (S008).
+/// Copy of share A in iCloud Drive (S008).
 public struct CopyInfo: Decodable, Equatable, Hashable, Identifiable, Sendable {
     public var name: String
     public var id: String
@@ -91,7 +91,7 @@ public struct VaultInfo: Decodable, Equatable, Identifiable, Sendable {
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 
-    /// Wolumin karty roboczej, np. /Volumes/xor_primary.
+    /// Working card volume, e.g. /Volumes/xor_primary.
     public var cardVolume: String? { card.map { volumeOf($0) } }
 }
 
@@ -128,7 +128,7 @@ public struct VolumeInfo: Decodable, Equatable, Hashable, Identifiable, Sendable
         vaults = try c.decodeIfPresent([CardRef].self, forKey: .vaults) ?? []
     }
 
-    /// Nośnik nadaje się na kartę (roboczą albo zapasową): zapisywalny i nie systemowy.
+    /// The drive can serve as a card (working or spare): writable and not a system disk.
     public var usableAsCard: Bool { !readOnly && !systemDisk }
 }
 

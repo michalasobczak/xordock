@@ -1,7 +1,7 @@
 import SwiftUI
 import XordockCore
 
-/// Lista wymagań z przyciskami naprawy (S011 W-04).
+/// Requirements list with fix buttons (S011 W-04).
 public struct RequirementsView: View {
     let result: DoctorResult?
     let checking: Bool
@@ -22,10 +22,10 @@ public struct RequirementsView: View {
                     .font(.system(size: 30))
                     .foregroundStyle(result?.hasErrors == true ? Color.orange : Color.green)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(result?.hasErrors == true ? "Brakuje potrzebnych składników" : "Wymagania").font(.title2.weight(.semibold))
+                    Text(result?.hasErrors == true ? "Required components are missing" : "Requirements").font(.title2.weight(.semibold))
                     Text(result?.hasErrors == true
-                         ? "Bez nich sejfu nie da się otworzyć w Finderze. Napraw i kliknij „Sprawdź ponownie”."
-                         : "Wszystko, czego xordock potrzebuje.")
+                         ? "Without them the vault can't be opened in Finder. Fix them and click \"Check again\"."
+                         : "Everything xordock needs.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -49,10 +49,10 @@ public struct RequirementsView: View {
                 }
             }
             HStack {
-                if checking { ProgressView().controlSize(.small); Text("Sprawdzam…").foregroundStyle(.secondary) }
+                if checking { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
                 Spacer()
-                Button("Sprawdź ponownie", action: onRecheck).buttonStyle(SecondaryButtonStyle()).disabled(checking)
-                Button("Zamknij", action: onClose).buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                Button("Check again", action: onRecheck).buttonStyle(SecondaryButtonStyle()).disabled(checking)
+                Button("Close", action: onClose).buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
             }
         }
         .padding(24)

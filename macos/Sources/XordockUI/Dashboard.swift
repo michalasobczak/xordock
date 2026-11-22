@@ -1,8 +1,8 @@
 import SwiftUI
 import XordockCore
 
-// Pulpit sejfu (S009): status z jednym zaleceniem, kafelki nośników, rząd
-// akcji, zwinięte szczegóły. Widok bez logiki decyzyjnej (reguły w Health.swift).
+// Vault dashboard (S009): status with a single recommendation, drive tiles, action
+// row, collapsed details. A view without decision logic (rules in Health.swift).
 
 public extension Level {
     var color: Color {
@@ -23,7 +23,7 @@ public extension Level {
     }
 }
 
-/// Główny przycisk: wypełniony kolorem akcentu (czysty SwiftUI, renderowalny).
+/// Primary button: filled with the accent color (pure SwiftUI, renderable).
 public struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     public init() {}
@@ -37,7 +37,7 @@ public struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
-/// Przycisk drugorzędny: obrys, bez wypełnienia.
+/// Secondary button: outline, no fill.
 public struct SecondaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     public init() {}
@@ -82,7 +82,7 @@ public struct Dashboard: View {
         ScrollView { content }
     }
 
-    /// Treść pulpitu bez przewijania (renderowalna przez ImageRenderer).
+    /// Dashboard content without scrolling (renderable by ImageRenderer).
     public var content: some View {
         let health = VaultHealth.evaluate(vault, icloud: icloud)
         let tiles = vault.tiles(icloud: icloud)
@@ -105,14 +105,14 @@ public struct Dashboard: View {
         .frame(maxWidth: 820, alignment: .leading)
     }
 
-    /// Akcje drugorzędne; ta, która jest przyciskiem głównym, nie powtarza się.
+    /// Secondary actions; the one that is the primary button is not repeated.
     private func actionRow(primary: PrimaryAction) -> some View {
         HStack(spacing: 10) {
             if vault.mounted {
-                Button("Odmontuj", systemImage: "eject", action: actions.unmount)
+                Button("Unmount", systemImage: "eject", action: actions.unmount)
                     .tourAnchor(.unmount)
             } else if primary != .mount {
-                Button("Otwórz sejf", systemImage: "lock.open", action: actions.mount)
+                Button("Open vault", systemImage: "lock.open", action: actions.mount)
                     .disabled(vault.card == nil || vault.error != nil)
                     .tourAnchor(.mount)
             }
@@ -121,14 +121,14 @@ public struct Dashboard: View {
                     .disabled(vault.card == nil)
                     .tourAnchor(.backup)
             }
-            Button("Odzyskiwanie…", systemImage: "lifepreserver", action: actions.recovery)
+            Button("Recovery…", systemImage: "lifepreserver", action: actions.recovery)
                 .tourAnchor(.recovery)
             Spacer()
             Menu {
-                Button("Sprawdź spójność", action: actions.fsck).disabled(vault.card == nil || vault.mounted)
-                Button("Pokaż log montowania", action: actions.showLog)
+                Button("Check consistency", action: actions.fsck).disabled(vault.card == nil || vault.mounted)
+                Button("Show mount log", action: actions.showLog)
             } label: {
-                Label("Więcej", systemImage: "ellipsis.circle")
+                Label("More", systemImage: "ellipsis.circle")
             }
             .menuStyle(.button)
             .buttonStyle(SecondaryButtonStyle())
@@ -140,14 +140,14 @@ public struct Dashboard: View {
     }
 
     private var details: some View {
-        DisclosureGroup("Szczegóły techniczne", isExpanded: $showDetails) {
+        DisclosureGroup("Technical details", isExpanded: $showDetails) {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-                row("Udział A", vault.a)
-                row("Karta robocza", vault.card ?? "niepodłączona")
-                if let c = vault.aCopy { row("Kopia A", c.path) }
-                ForEach(vault.spares, id: \.self) { row("Karta zapasowa", $0.root) }
-                row("Commit / migawki", "\(vault.seq) / \(vault.snapshots)")
-                row("Maski", masks)
+                row("Share A", vault.a)
+                row("Working card", vault.card ?? "not connected")
+                if let c = vault.aCopy { row("Copy of A", c.path) }
+                ForEach(vault.spares, id: \.self) { row("Spare card", $0.root) }
+                row("Commit / snapshots", "\(vault.seq) / \(vault.snapshots)")
+                row("Masks", masks)
             }
             .font(.callout)
             .textSelection(.enabled)
@@ -216,7 +216,7 @@ struct TileView: View {
     }
 }
 
-/// Kropka stanu na liście sejfów (S009 P-05).
+/// Status dot in the vault list (S009 P-05).
 public struct HealthDot: View {
     let level: Level
     public init(level: Level) { self.level = level }

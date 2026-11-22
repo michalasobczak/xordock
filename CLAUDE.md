@@ -1,17 +1,17 @@
-# xordock — instrukcje dla asystenta
+# xordock — instructions for the assistant
 
-Pracujemy zgodnie z metodyką opisaną na https://workwithrondo.com (Rondo + Context-Driven-Development).
+We work according to the methodology described at https://workwithrondo.com (Rondo + Context-Driven-Development).
 
-- **Najpierw pytania.** Przed implementacją dopytuję (metodą sokratejską), aż cel, zakres i kryteria akceptacji są jasne. Nie zgaduję wymagań. Decyzje właściciela zapisuję w specyfikacji.
-- **Specyfikacja przed kodem.** Każda zmiana ma specyfikację w `specs/` o stałej strukturze 9 sekcji (szablon: `specs/SZABLON.md`, numeracja `SNNN-nazwa.md`).
-- **Po dostarczeniu zmiany:** testy potwierdzające bramki kontrolne, wpis w `CHANGELOG.md` (według dat, najnowsze na górze), aktualizacja stanu w `README.md`, status specyfikacji „dostarczona”.
-- **Analiza bezpieczeństwa po każdej rundzie.** Gdy specyfikacja jest zaimplementowana i testy przechodzą, sam, bez proszenia, przeprowadzam analizę bezpieczeństwa tej i wszystkich poprzednich specyfikacji: regresje i luki. Każde znalezisko poprawiamy jak zwykłą zmianę (specyfikacja, test odtwarzający problem, wpis w CHANGELOG). Runda kończy się dopiero po analizie.
-- **Zasady inżynierskie** są w `MANIFEST.md` (na bazie Engineering essentials E1–E6 z workwithrondo.com). Obowiązują przy każdej specyfikacji. Odstępstwo trzeba nazwać i uzasadnić w sekcji „Additional Information”.
-- **Odtwarzalność.** Inny nowoczesny asystent AI powinien móc odbudować projekt z `specs/`, `CHANGELOG.md`, `README.md` i testów.
-- Artefakty i komunikacja po polsku.
+- **Questions first.** Before implementing, I ask (Socratic method) until the goal, scope and acceptance criteria are clear. I don't guess requirements. I record the owner's decisions in the spec.
+- **Spec before code.** Every change has a spec in `specs/` with a fixed 9-section structure (template: `specs/SZABLON.md`, numbering `SNNN-name.md`).
+- **After delivering a change:** tests confirming the control gates, an entry in `CHANGELOG.md` (by date, newest on top), an updated state in `README.md`, spec status "delivered".
+- **Security analysis after every round.** When a spec is implemented and the tests pass, I run, unprompted, a security analysis of this and all previous specs: regressions and gaps. Every finding is fixed like a normal change (spec, test reproducing the problem, CHANGELOG entry). A round ends only after the analysis.
+- **Engineering principles** are in `MANIFEST.md` (based on Engineering essentials E1–E6 from workwithrondo.com). They apply to every spec. A deviation must be named and justified in the "Additional Information" section.
+- **Reproducibility.** Another modern AI assistant should be able to rebuild the project from `specs/`, `CHANGELOG.md`, `README.md` and the tests.
+- **Language:** artifacts in English (code, comments, UI and CLI texts, specs, docs, CHANGELOG, README); conversation with the owner in Polish. Owner's decision of 2026-11-22 (S012).
 
-## Projekt
+## Project
 
-- Budowanie: `go build -o bin/xordock ./cmd/xordock`. Testy: `go test -race ./...` (muszą przechodzić przed każdym commitem).
-- Karta SD do testów E2E: `/Volumes/xordock`. Na karcie zapisujemy tylko w `xordock/<nazwa-sejfu>`; testowe sejfy usuwamy po testach.
-- Stan bezpieczeństwa i otwarte znaleziska: `docs/bezpieczenstwo/` (najnowszy raport).
+- Build: `go build -o bin/xordock ./cmd/xordock`. Tests: `go test -race ./...` and `(cd macos && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test)` (must pass before every commit). App: `scripts/build-app.sh`.
+- E2E test media: the SD card `/Volumes/xordock` or the owner's USB sticks (`/Volumes/xor_primary`, `/Volumes/xor_backup`). On a card we write only under `xordock/<vault-name>`; test vaults are deleted after the tests.
+- Security state and open findings: `docs/security/` (latest report).

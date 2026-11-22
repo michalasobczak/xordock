@@ -5,8 +5,8 @@ import (
 	"os"
 )
 
-// FsckReport opisuje spójność sejfu bez ujawniania treści: weryfikujemy
-// sumy obu udziałów każdego obiektu, ale ich nie składamy.
+// FsckReport describes vault consistency without revealing content: we verify
+// the checksums of both shares of every object, but do not join them.
 type FsckReport struct {
 	Seq       uint64
 	Files     int
@@ -45,17 +45,17 @@ func (v *Vault) Fsck() FsckReport {
 				_, err = decodeShare(raw, s.side, v.id, id)
 			}
 			if err != nil {
-				r.Problems = append(r.Problems, fmt.Sprintf("obiekt %s, udział %c: %v", hexID, s.side, err))
+				r.Problems = append(r.Problems, fmt.Sprintf("object %s, share %c: %v", hexID, s.side, err))
 			}
 		}
 	}
 	check(v.cur.Index)
-	// Migawki: ich obiekty muszą być kompletne po obu stronach (S004 §5.4).
+	// Snapshots: their objects must be complete on both sides (S004 §5.4).
 	for _, s := range v.idx.Snaps {
 		check(s.Index)
 		ix, err := v.loadIndex(s.Index)
 		if err != nil {
-			r.Problems = append(r.Problems, fmt.Sprintf("migawka %s: %v", s.ID, err))
+			r.Problems = append(r.Problems, fmt.Sprintf("snapshot %s: %v", s.ID, err))
 			continue
 		}
 		r.Snapshots++
@@ -73,7 +73,7 @@ func (v *Vault) Fsck() FsckReport {
 		r.Files++
 		r.Bytes += e.Size
 		if want := (e.Size + BlockSize - 1) / BlockSize; int64(len(e.Blocks)) != want {
-			r.Problems = append(r.Problems, fmt.Sprintf("plik ma %d bloków zamiast %d", len(e.Blocks), want))
+			r.Problems = append(r.Problems, fmt.Sprintf("file has %d blocks instead of %d", len(e.Blocks), want))
 		}
 		for _, b := range e.Blocks {
 			check(b)

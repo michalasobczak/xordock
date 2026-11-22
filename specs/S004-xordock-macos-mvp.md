@@ -1,325 +1,325 @@
-# S004 — XorDock: bezpieczny katalog macOS z dwoma udziałami i odzyskiwaniem
+# S004 — XorDock: secure macOS folder with two shares and recovery
 
-- **Status:** dostarczona dla CP-01–CP-08 (CP-08: aplikacja SwiftUI w S007). Otwarta część CP-09 (fuzz, test nocny 1 GiB, pomiar 1 GiB). Szczegóły w §9 „Realizacja”.
-- **Data:** 2026-11-22
-- **Powiązane:** zastępuje S001 (silnik przejęty) i S002 (porzucona); S005 (poprawki z analizy bezpieczeństwa tej rundy); S003 (szkic)
-- **Źródło:** specyfikacja właściciela wpisana jako `specs/S004.md` (tytuł roboczy SPEC-001). Numer i nazwa pliku według konwencji repozytorium. Tekst właściciela poniżej bez zmian; decyzje wykonawcze dopisane w §9.
+- **Status:** delivered for CP-01–CP-08 (CP-08: SwiftUI app in S007). Open part of CP-09 (fuzz, 1 GiB nightly test, 1 GiB measurement). Details in §9 "Implementation".
+- **Date:** 2026-11-22
+- **Related:** supersedes S001 (engine taken over) and S002 (abandoned); S005 (fixes from this round's security analysis); S003 (draft)
+- **Source:** owner's spec entered as `specs/S004.md` (working title SPEC-001). Number and file name follow the repository convention. The owner's text below is unchanged in content (translated from Polish to English by the owner's decision); implementation decisions added in §9.
 
-> Tekst właściciela:
+> Owner's text:
 
 
-**Wersja:** 1.0-draft  
-**Data:** 2026-11-22  
-**Metodyka:** Rondo / Context-Driven Development (CDD) — https://workwithrondo.com/  
-**Status:** Gotowe do rozpoczęcia *implementacji prototypu*, nie do przechowywania danych produkcyjnych  
-**Odbiorca:** niezależny autor produktu XorDock  
-**Repozytorium:** `xordock` (nowe)  
-**Docelowy plik:** `specs/SPEC-001-xordock-macos-mvp.md`
+**Version:** 1.0-draft  
+**Date:** 2026-11-22  
+**Methodology:** Rondo / Context-Driven Development (CDD) — https://workwithrondo.com/  
+**Status:** Ready to start *prototype implementation*, not for storing production data  
+**Recipient:** independent author of the XorDock product  
+**Repository:** `xordock` (new)  
+**Target file:** `specs/SPEC-001-xordock-macos-mvp.md`
 
 ## 1. TL;DR
 
-Zbudować na macOS katalog widoczny w Finderze, którego każdy blok zawartości i wrażliwych metadanych jest rozdzielany na dwa udziały XOR: `A` na wewnętrznym SSD Maca oraz `B` na roboczej karcie SD. Dodać migawki wersji udziału A i synchronizację odpowiadających im bloków B na drugą kartę SD, tak aby po zgubieniu roboczej karty dało się odzyskać *ostatni prawidłowy punkt odzyskiwania*, ale nie późniejsze zmiany. Sukces należy potwierdzić automatycznymi testami operacji plikowych, utraty nośnika, symulowanych awarii zasilania i pełnego odzyskiwania.
+Build on macOS a folder visible in Finder, each block of whose content and sensitive metadata is split into two XOR shares: `A` on the Mac's internal SSD and `B` on a working SD card. Add snapshots of share A versions and synchronization of the corresponding B blocks to a second SD card, so that after losing the working card it is possible to recover the *last valid recovery point*, but not later changes. Success must be confirmed by automated tests of file operations, medium loss, simulated power failures and full recovery.
 
 ## 2. Abstract
 
-Projekt zaczyna się bez istniejącej implementacji. Zwykłe szyfrowanie dysku z krótkim kluczem i opcjonalnym tokenem nie spełnia rozważanego celu fizycznego rozdzielenia informacji: sama kopia jednego udziału nie powinna wystarczać do odtworzenia dokumentów.
+The project starts without an existing implementation. Ordinary disk encryption with a short key and an optional token does not meet the considered goal of physically separating information: a copy of a single share alone should not be enough to restore the documents.
 
-XorDock realizuje prosty podział danych: dla wiadomości `M` generuje maskę `R`, zapisuje `A = M XOR R` na SSD oraz `B = R` na wyjmowanym nośniku. Rekonstrukcja `M = A XOR B` odbywa się tylko przy dostępie do obu udziałów. Dla wygody system udostępnia zwykły wolumen/katalog użytkownikowi macOS.
+XorDock implements a simple data split: for a message `M` it generates a mask `R`, writes `A = M XOR R` on the SSD and `B = R` on a removable medium. Reconstruction `M = A XOR B` happens only with access to both shares. For convenience the system presents an ordinary volume/folder to the macOS user.
 
-W wersji MVP maski pochodzą z systemowego kryptograficznego generatora macOS (CSPRNG). Zapewnia to silny *praktyczny* model bezpieczeństwa, lecz **nie jest dowodem doskonałej tajności ani bezwarunkowej odporności na P = NP**. Wariant ze zweryfikowanym strumieniem niezależnych losowych masek wymaga osobnej specyfikacji i przeglądu kryptograficznego.
+In the MVP the masks come from the macOS system cryptographic generator (CSPRNG). This provides a strong *practical* security model, but **is not a proof of perfect secrecy nor of unconditional resistance to P = NP**. A variant with a verified stream of independent random masks requires a separate spec and a cryptographic review.
 
-Dwa identyczne nośniki nie stanowią RAID 1. Robocza SD zawiera aktywny udział B. Zapasowa SD przechowuje **historyczny udział B** dla ostatniego zatwierdzonego punktu odzyskiwania. Po utracie roboczej SD można odtworzyć tylko tę historyczną wersję, używając zachowanej, zgodnej migawki udziału A. Nie stosujemy migawek całego systemu plików APFS.
+Two identical media are not RAID 1. The working SD holds the active share B. The spare SD stores the **historical share B** for the last committed recovery point. After losing the working SD only that historical version can be restored, using a preserved, matching snapshot of share A. We do not use snapshots of the whole APFS file system.
 
-Pierwsze wydanie jest lokalnym prototypem na własnym Macu, dystrybuowanym poza Mac App Store. Domyślnie nie wolno wymagać wyłączania SIP/AMFI ani obniżania polityki bezpieczeństwa Apple Silicon.
+The first release is a local prototype on the owner's own Mac, distributed outside the Mac App Store. By default it must not require disabling SIP/AMFI or lowering the Apple Silicon security policy.
 
 ## 3. Objective
 
 ### Goals
 
-- **G-01:** Utworzyć i zamontować w Finderze jeden chroniony wolumen `XorDock`, niezależny od dysku systemowego.
-- **G-02:** Zapisywać zawartość plików i wrażliwe metadane wyłącznie jako dwa zgodne udziały, bez trwałych plików jawnych w magazynach XorDock.
-- **G-03:** Nie montować wolumenu, jeśli brakuje poprawnego udziału B; nie zastępować brakującego udziału zerami, starymi blokami ani CSPRNG.
-- **G-04:** Zapewnić operacje zwykłych plików oraz trwałe, spójne zapisy pomimo dwóch fizycznych nośników.
-- **G-05:** Zachowywać historyczne wersje bloków A wyłącznie na potrzeby migawek XorDock.
-- **G-06:** Synchronizować zapasową SD raz na żądanie użytkownika (np. co tydzień), kopiując tylko brakujące bloki B punktu odzyskiwania.
-- **G-07:** Po zgubieniu roboczej SD odtworzyć spójną wersję folderu z ostatniej zatwierdzonej migawki A i odpowiadającej jej zapasowej SD.
-- **G-08:** Zapewnić diagnozę: czy wolumen jest zamontowany, jaki nośnik jest wymagany, kiedy wykonano ostatni sprawdzony backup i jakie zmiany mogą przepaść.
-- **G-09:** W sposób weryfikowalny odróżniać poufność teoretycznego XOR z idealnym R od rzeczywistej ochrony implementacji używającej CSPRNG macOS.
+- **G-01:** Create and mount in Finder one protected `XorDock` volume, independent of the system disk.
+- **G-02:** Store file contents and sensitive metadata only as two matching shares, with no persistent plaintext files in XorDock stores.
+- **G-03:** Do not mount the volume if a valid share B is missing; do not replace the missing share with zeros, old blocks or CSPRNG output.
+- **G-04:** Provide ordinary file operations and durable, consistent writes despite two physical media.
+- **G-05:** Keep historical versions of A blocks only for XorDock snapshots.
+- **G-06:** Synchronize the spare SD once per user request (e.g. weekly), copying only the missing B blocks of the recovery point.
+- **G-07:** After losing the working SD, restore a consistent version of the folder from the last committed A snapshot and the corresponding spare SD.
+- **G-08:** Provide diagnostics: whether the volume is mounted, which medium is required, when the last verified backup was made and which changes may be lost.
+- **G-09:** Verifiably distinguish the confidentiality of theoretical XOR with an ideal R from the real protection of an implementation using the macOS CSPRNG.
 
 ### Out of scope — MVP
 
-- Start systemu z chronionego wolumenu; szyfrowanie systemowego SSD, wymiana FileVault.
-- iPhone jako backend, SMB/NAS, synchronizacja przez Internet, iCloud i współdzielenie danych.
-- Własne rozszerzenie FSKit podpisywane indywidualnym entitlementem.
-- Programowe wymazywanie danych z komórek flash jako gwarantowana funkcja bezpieczeństwa.
-- Gwarancja ochrony przed przejętym systemem, złośliwą aplikacją czy podsłuchiwaniem pamięci działającego Maca.
-- Gwarancja integralności wobec przeciwnika z dowolną mocą obliczeniową; musi być osobno zaprojektowana.
-- Pełne bezpieczeństwo informacyjno-teoretyczne produktu przy P = NP: jest wymaganiem badawczym po MVP, a nie deklaracją gotowego produktu.
-- Pełna kompatybilność z każdą aplikacją macOS i wszystkimi funkcjami POSIX w pierwszym wydaniu.
+- Booting from the protected volume; encrypting the system SSD, replacing FileVault.
+- iPhone as a backend, SMB/NAS, synchronization over the Internet, iCloud and data sharing.
+- A custom FSKit extension signed with an individual entitlement.
+- Software erasure of data from flash cells as a guaranteed security feature.
+- A guarantee of protection against a compromised system, a malicious application or memory snooping of a running Mac.
+- A guarantee of integrity against an adversary with arbitrary computing power; it must be designed separately.
+- Full information-theoretic security of the product under P = NP: it is a research requirement after the MVP, not a claim of a finished product.
+- Full compatibility with every macOS application and all POSIX features in the first release.
 
 ### Success criteria
 
-**SC-01:** pliki po zapisaniu i ponownym zamontowaniu są bajtowo identyczne;  
-**SC-02:** sam udział A ani sam udział B nie zawiera jawnych testowych dokumentów;  
-**SC-03:** odłączenie roboczej SD kończy się deterministycznym błędem operacji i stanem bezpiecznym;  
-**SC-04:** po utracie SD roboczej da się odtworzyć ostatni zatwierdzony punkt backupu, nie późniejsze zmiany;  
-**SC-05:** dowolna symulowana przerwa w transakcji nie tworzy cicho uszkodzonej „zatwierdzonej” wersji;  
-**SC-06:** nie są potrzebne SIP-off, AMFI-off, Reduced Security ani płatne konto Apple do lokalnego prototypu;  
-**SC-07:** dokumentacja nie zawiera nieuzasadnionej obietnicy „odporności na P = NP”.
+**SC-01:** files after writing and remounting are byte-identical;  
+**SC-02:** neither share A alone nor share B alone contains plaintext test documents;  
+**SC-03:** disconnecting the working SD ends with a deterministic operation error and a safe state;  
+**SC-04:** after losing the working SD the last committed backup point can be restored, not later changes;  
+**SC-05:** no simulated interruption of a transaction silently creates a damaged "committed" version;  
+**SC-06:** SIP-off, AMFI-off, Reduced Security or a paid Apple account are not needed for the local prototype;  
+**SC-07:** the documentation contains no unjustified promise of "resistance to P = NP".
 
 ## 4. Artefact Inventory
 
-| Artefakt | Stan | Funkcja |
+| Artefact | State | Function |
 |---|---|---|
-| `README.md` | to create | Aktualny rzeczywisty stan, instalacja, ograniczenia |
-| `CHANGELOG.md` | to create | Co faktycznie zbudowano i przetestowano |
-| `specs/SPEC-001-xordock-macos-mvp.md` | to create | Ten kontrakt wdrożenia |
-| `docs/engineering-manifesto.md` | to create | Zasady jakości, bezpieczeństwa, commitowania i przeglądów |
-| `docs/threat-model.md` | to create | Dokładny model zagrożeń i ograniczeń |
-| `docs/format-v1.md` | to create | Format udziałów, wersji, katalogu, transakcji i manifestów |
-| `docs/recovery.md` | to create | Procedura backupu i odzyskiwania po utracie SD |
-| `core/` (Rust) | to create | XOR, obiekty, manifesty, transakcje, migawek i recovery |
-| `macos/` (SwiftUI) | to create | Interfejs, wybór SD, mount/unmount, diagnostyka |
-| `fuse-adapter/` | to create | Adapter operacji FUSE do `core/` |
-| `tests/unit/` | to create | Testy operacji, masek, manifestów |
-| `tests/integration/` | to create | Dwa magazyny, spójność transakcji, hot-unplug |
-| `tests/recovery/` | to create | Testy odzyskiwania z historycznego punktu |
-| `scripts/fault-injection/` | to create | Kontrolowane przerwanie zapisu/commit/backup |
-| macFUSE 5.x + backend FSKit | exists (external) | FUSE bez własnego kext, wymagane potwierdzenie na docelowej wersji macOS |
-| `SecRandomCopyBytes` | exists (system) | CSPRNG dla prototypu; niebezwarunkowa losowość |
-| Testowe SSD/SD oraz nośnik zapasowy | to provide | Fizyczny test pełnego scenariusza |
-| Publiczne API surowego hardware TRNG na macOS | not established | Nie przyjmować jako istniejącej zależności |
+| `README.md` | to create | Current actual state, installation, limitations |
+| `CHANGELOG.md` | to create | What was actually built and tested |
+| `specs/SPEC-001-xordock-macos-mvp.md` | to create | This implementation contract |
+| `docs/engineering-manifesto.md` | to create | Rules for quality, security, committing and reviews |
+| `docs/threat-model.md` | to create | Exact threat and limitation model |
+| `docs/format-v1.md` | to create | Format of shares, versions, catalog, transactions and manifests |
+| `docs/recovery.md` | to create | Backup procedure and recovery after losing the SD |
+| `core/` (Rust) | to create | XOR, objects, manifests, transactions, snapshots and recovery |
+| `macos/` (SwiftUI) | to create | Interface, SD selection, mount/unmount, diagnostics |
+| `fuse-adapter/` | to create | Adapter of FUSE operations to `core/` |
+| `tests/unit/` | to create | Tests of operations, masks, manifests |
+| `tests/integration/` | to create | Two stores, transaction consistency, hot-unplug |
+| `tests/recovery/` | to create | Recovery tests from a historical point |
+| `scripts/fault-injection/` | to create | Controlled interruption of write/commit/backup |
+| macFUSE 5.x + FSKit backend | exists (external) | FUSE without its own kext, confirmation required on the target macOS version |
+| `SecRandomCopyBytes` | exists (system) | CSPRNG for the prototype; not unconditional randomness |
+| Test SSD/SD and spare medium | to provide | Physical test of the full scenario |
+| Public API for raw hardware TRNG on macOS | not established | Do not assume it as an existing dependency |
 
-**Ustalenie platformy:** Apple Silicon, macOS 26 lub nowszy. Podczas startu kodowania odnotować dokładną wersję macOS, Xcode i macFUSE w `README.md` oraz CI. Używać wspieranych API. W fazie produkcyjnej sprawdzić licencję macFUSE — komercyjne bundlowanie lub automatyczne instalowanie dystrybucji binarnej wymaga odrębnej zgody/licencji.
+**Platform decision:** Apple Silicon, macOS 26 or newer. When coding starts, record the exact versions of macOS, Xcode and macFUSE in `README.md` and CI. Use supported APIs. In the production phase check the macFUSE license — commercial bundling or automatic installation of the binary distribution requires separate consent/license.
 
 ## 5. Functional Domain Changes
 
-### 5.1. Model danych i bezpieczeństwa
+### 5.1. Data and security model
 
-**D-01.** Dla każdego nowego logicznego bloku `M` aplikacja żąda niezależnej maski `R` o identycznej liczbie bajtów. `A = M XOR R`, `B = R`. Odzyskanie wymaga obu udziałów tego samego identyfikatora i tej samej wersji.
+**D-01.** For each new logical block `M` the application requests an independent mask `R` with the identical number of bytes. `A = M XOR R`, `B = R`. Recovery requires both shares with the same identifier and the same version.
 
-**D-02.** Bloki są *niezmienne*: ponowny zapis danego fragmentu pliku tworzy nowy identyfikator obiektu, nową maskę i oba nowe udziały. Nie wolno nadpisywać udziału przy zachowaniu wcześniejszej maski ani używać tej samej maski do dwóch wersji.
+**D-02.** Blocks are *immutable*: rewriting a given file fragment creates a new object identifier, a new mask and two new shares. It is forbidden to overwrite a share while keeping the earlier mask, or to use the same mask for two versions.
 
-**D-03.** Początkowy rozmiar bloku: 1 MiB (parametr formatu, z testami dla małych i dużych plików). Końcowy blok może być krótszy; rozmiary pozostają obserwowalną metadaną. Ewolucja formatu wymaga wersjonowania.
+**D-03.** Initial block size: 1 MiB (a format parameter, with tests for small and large files). The final block may be shorter; sizes remain observable metadata. Format evolution requires versioning.
 
-**D-04.** Nazwy plików, drzewo katalogów, tekstowe atrybuty i mapowanie pliku na bloki są częścią chronionego katalogu logicznego — dzielimy je na udziały tak samo jak zawartość. Jawne nagłówki nośników mogą zawierać tylko minimum: identyfikator wolumenu, rolę udziału, wersję formatu, numer generacji i niejawne identyfikatory obiektów. Ujawnienie liczby, rozmiarów i rytmu zmian może pozostać możliwe; dokumentujemy to.
+**D-04.** File names, the folder tree, text attributes and the file-to-block mapping are part of the protected logical catalog — we split them into shares just like the content. Plaintext medium headers may contain only the minimum: volume identifier, share role, format version, generation number and opaque object identifiers. Disclosure of the number, sizes and rhythm of changes may remain possible; we document this.
 
-**D-05.** Żadne pole w udziale A ani udziale B nie może zawierać jawnego oryginalnego pliku lub jego nazwy. Nie stosować hashy plaintextu jako nazw obiektów. Proste sumy kontrolne *własnego udziału* służą wykrywaniu przypadkowych uszkodzeń, ale nie potwierdzają integralności przy aktywnym ataku.
+**D-05.** No field in share A or share B may contain the plaintext original file or its name. Do not use plaintext hashes as object names. Simple checksums *of the share itself* serve to detect accidental damage, but do not confirm integrity under active attack.
 
-**D-06.** `RandomSource` ma interfejs `fill(buffer) -> Result`. MVP implementuje adapter systemowego `SecRandomCopyBytes`, sprawdzając kod wyniku; błąd generatora zatrzymuje zapis. Testy używają deterministycznego adaptera jawnie oznaczonego `TEST_ONLY`, który nie może znaleźć się w buildzie wydaniowym. Interfejs do przyszłego źródła fizycznej losowości jest rozszerzeniem, **nie** obietnicą osiągniętej gwarancji.
+**D-06.** `RandomSource` has the interface `fill(buffer) -> Result`. The MVP implements an adapter for the system `SecRandomCopyBytes`, checking the result code; a generator error stops the write. Tests use a deterministic adapter explicitly marked `TEST_ONLY`, which must not end up in a release build. The interface for a future source of physical randomness is an extension, **not** a promise of an achieved guarantee.
 
-**D-07.** Zapobieganie wyciekom jawnych danych: silnik nie zapisuje ich do katalogów roboczych, logów, crash-reportów ani warstwy backupu. Nie można zagwarantować, że zewnętrzne aplikacje nie pozostawią plaintextu w temp/cache/Quick Look/swap/Time Machine. Program wyświetla ostrzeżenie i zaleca FileVault.
+**D-07.** Preventing plaintext leaks: the engine does not write plaintext to working folders, logs, crash reports or the backup layer. It cannot be guaranteed that external applications will not leave plaintext in temp/cache/Quick Look/swap/Time Machine. The program shows a warning and recommends FileVault.
 
-### 5.2. Interfejs i montowanie
+### 5.2. Interface and mounting
 
-**F-01.** Tworzenie wolumenu: użytkownik wybiera katalog magazynu A na wewnętrznym dysku i przygotowuje roboczą kartę SD jako magazyn B. Inicjalizacja generuje niezwiązany z nazwą wolumenu identyfikator pary. Nie należy zakładać, że zwykła karta SD jest niekopiowalnym tokenem.
+**F-01.** Volume creation: the user selects the folder for store A on the internal disk and prepares a working SD card as store B. Initialization generates a pair identifier unrelated to the volume name. Do not assume that an ordinary SD card is an uncopyable token.
 
-**F-02.** Zamontowanie następuje tylko po sprawdzeniu spójnej pary udziałów i wspólnej zatwierdzonej generacji. Gdy jedna strona jest nowsza wskutek awarii, system wybiera ostatnią *wspólnie* zatwierdzoną generację albo odmawia montowania z informacją o naprawie.
+**F-02.** Mounting happens only after checking a consistent pair of shares and a common committed generation. When one side is newer due to a failure, the system chooses the last *jointly* committed generation or refuses to mount with repair information.
 
-**F-03.** Standardowe operacje MVP: listowanie, tworzenie plików/katalogów, odczyt fragmentu, zapis fragmentu, zmianę rozmiaru, rename, delete, `stat`, `flush`, `fsync` i ponowne otwarcie. Obsługa `xattr`, aliasów/symlinków, blokad oraz atomowego zapisu aplikacji wymaga osobnych testów zgodności. Operacje nieobsługiwane mają zwrócić jawny błąd, nie pozorny sukces.
+**F-03.** Standard MVP operations: listing, creating files/folders, reading a fragment, writing a fragment, resizing, rename, delete, `stat`, `flush`, `fsync` and reopening. Support for `xattr`, aliases/symlinks, locks and application atomic saves requires separate compatibility tests. Unsupported operations must return an explicit error, not an apparent success.
 
-**F-04.** Wirtualny katalog pojawia się w Finderze. Rozłączenie roboczej SD przestawia magazyn w stan `DEGRADED/READ_ONLY_OR_UNAVAILABLE` i odmawia nowych operacji wymagających B. Nie wolno buforować całego udziału B na SSD ani trwale utrzymywać go w cache.
+**F-04.** The virtual folder appears in Finder. Disconnecting the working SD switches the store to the `DEGRADED/READ_ONLY_OR_UNAVAILABLE` state and refuses new operations requiring B. It is forbidden to buffer the whole share B on the SSD or keep it persistently in a cache.
 
-**F-05.** `unmount` kończy nowe otwarcia, synchronizuje aktywne operacje, kończy transakcje, oznacza wolumen jako zamknięty i umożliwia bezpieczne wysunięcie karty. Nie obiecywać usunięcia jawnych danych, które aplikacje już przechowują w swojej pamięci.
+**F-05.** `unmount` stops new opens, synchronizes active operations, completes transactions, marks the volume as closed and allows the card to be ejected safely. Do not promise removal of plaintext data that applications already hold in their memory.
 
-### 5.3. Spójny zapis na dwóch nośnikach
+### 5.3. Consistent writing to two media
 
-**T-01.** Zmiana pliku: zapis nowych bloków A i B pod nowymi ID; utrwalenie obiektów (`fsync`); przygotowanie nowego chronionego katalogu metadanych; utrwalenie obu stron; zapis rekordu `prepared` na obu nośnikach; przejście do wspólnego `committed` i aktualizacja korzenia wolumenu. Format ma być odporny na brak atomowości między dyskami.
+**T-01.** File change: write new A and B blocks under new IDs; persist the objects (`fsync`); prepare a new protected metadata catalog; persist both sides; write a `prepared` record on both media; move to a common `committed` and update the volume root. The format must be resilient to the lack of atomicity between disks.
 
-**T-02.** Po restarcie skaner wybiera ostatni wspólny poprawny korzeń `committed`, sprawdza kompletność wskazywanych obiektów i odrzuca niedokończone obiekty. `fsync` w widocznym systemie plików nie może potwierdzać trwałości danych, dopóki wymagane udziały nie zostały utrwalone.
+**T-02.** After a restart the scanner chooses the last common valid `committed` root, checks the completeness of the referenced objects and discards unfinished objects. `fsync` in the visible file system must not confirm data durability until the required shares have been persisted.
 
-**T-03.** Jednoczesne zapisy muszą być serializowane w zakresie modyfikowanych obiektów i korzenia manifestu. Pierwszy prototyp może mieć jednego piszącego na wolumen, jeśli interfejs jasno egzekwuje ograniczenie.
+**T-03.** Concurrent writes must be serialized within the scope of the modified objects and the manifest root. The first prototype may have one writer per volume, if the interface clearly enforces the restriction.
 
-**T-04.** Brak miejsca, brak SD, błąd I/O, odcięcie zasilania i uszkodzenie manifestu: brak cichej utraty ostatniej potwierdzonej wersji; błąd i instrukcja odzyskiwania.
+**T-04.** Out of space, missing SD, I/O error, power cut and manifest damage: no silent loss of the last confirmed version; an error and recovery instructions.
 
-### 5.4. Migawki tylko udziałów XorDock
+### 5.4. Snapshots of XorDock shares only
 
-**S-01.** Migawka jest niezmiennym identyfikatorem zatwierdzonego korzenia katalogu XorDock: `snapshot_id`, `generation`, zakres wymaganych identyfikatorów bloków i znacznik czasu. Powiązany stan katalogu logicznego pozostaje dzielony na A/B.
+**S-01.** A snapshot is an immutable identifier of a committed XorDock catalog root: `snapshot_id`, `generation`, the range of required block identifiers and a timestamp. The associated logical catalog state remains split into A/B.
 
-**S-02.** `createSnapshot()` nie robi snapshotu całego wolumenu APFS i nie kopiuje plaintextu. Przypina historyczne obiekty A i B tak, żeby nadpisanie dokumentu nie usunęło bloków niezbędnych starszej migawce.
+**S-02.** `createSnapshot()` does not take a snapshot of the whole APFS volume and does not copy plaintext. It pins historical A and B objects so that overwriting a document does not delete blocks needed by an older snapshot.
 
-**S-03.** Zmiana pliku po migawce tworzy nowe obiekty i nowy katalog logiczny, a stare obiekty pozostają dopóki istnieje wymagająca ich migawka albo backup.
+**S-03.** Changing a file after a snapshot creates new objects and a new logical catalog, and the old objects remain as long as a snapshot or backup requiring them exists.
 
-**S-04.** `garbageCollect()` usuwa wyłącznie obiekty nieosiągalne z bieżącego korzenia oraz wszystkich przypiętych migawek/ważnych backupów. Przy braku pewności — zatrzymuje się.
+**S-04.** `garbageCollect()` deletes only objects unreachable from the current root and all pinned snapshots/valid backups. When in doubt — it stops.
 
-### 5.5. Tygodniowy backup na drugą SD
+### 5.5. Weekly backup to the second SD
 
-**B-01.** Workflow: włóż roboczą SD, utwórz migawkę `G`; włóż zapasową SD; XorDock kopiuje *brakujące* bloki udziału B dla `G` oraz odpowiadające im wersjonowane metadane udziału B. Wymagane bloki udziału A pozostają przypięte lokalnie.
+**B-01.** Workflow: insert the working SD, create snapshot `G`; insert the spare SD; XorDock copies the *missing* share B blocks for `G` and the corresponding versioned share B metadata. The required share A blocks remain pinned locally.
 
-**B-02.** Backup ma osobny identyfikator nośnika i identyfikator punktu odzyskiwania, ale nie jest osobnym kluczem kryptograficznym. Kopiuje udział B w tej samej wersji. Kopia B na drugą SD nie jest ponownym szyfrowaniem tym samym OTP; to skopiowanie tego samego udziału.
+**B-02.** The backup has a separate medium identifier and recovery point identifier, but is not a separate cryptographic key. It copies share B in the same version. Copying B to the second SD is not re-encryption with the same OTP; it is a copy of the same share.
 
-**B-03.** Nowy backup powstaje w obszarze staging. System potwierdza go jako `READY` dopiero po sprawdzeniu obecności i poprawności wszystkich wymaganych obiektów. **W razie błędu poprzedni, sprawdzony punkt odzyskiwania musi pozostać kompletny.**
+**B-03.** A new backup is created in a staging area. The system confirms it as `READY` only after checking the presence and validity of all required objects. **In case of error, the previous verified recovery point must remain complete.**
 
-**B-04.** Jeśli na zapasowej SD brak miejsca na bezpieczny staging, synchronizacja odmawia działania zamiast usuwać jedyny dobry backup. Usunięcie starej wersji wymaga osobnej decyzji retencyjnej użytkownika i nowego, zakończonego sukcesem punktu.
+**B-04.** If the spare SD lacks space for safe staging, synchronization refuses to run instead of deleting the only good backup. Deleting an old version requires a separate retention decision by the user and a new, successfully completed point.
 
-**B-05.** Po zakończeniu aplikacja pokazuje datę i ID punktu `READY`, zakres gwarantowanego odzyskania oraz ostrzeżenie, że późniejsze zmiany **nie** znajdują się na zapasowej karcie.
+**B-05.** On completion the application shows the date and ID of the `READY` point, the scope of guaranteed recovery and a warning that later changes are **not** on the spare card.
 
-**B-06.** Backup A na osobnym fizycznym nośniku jest przyszłą funkcją. Lokalna migawka A + zapasowa SD chronią przed utratą **roboczej SD**, lecz nie przed awarią lub utratą SSD Maca.
+**B-06.** Backup of A on a separate physical medium is a future feature. The local A snapshot + spare SD protect against loss of the **working SD**, but not against failure or loss of the Mac's SSD.
 
-### 5.6. Odzyskiwanie
+### 5.6. Recovery
 
-**R-01.** Użytkownik wkłada zapasową SD po zgubieniu roboczej. XorDock pokazuje zgodne migawki udziału A i punkty B oznaczone jako `READY`.
+**R-01.** The user inserts the spare SD after losing the working one. XorDock shows matching share A snapshots and B points marked as `READY`.
 
-**R-02.** `restoreSnapshot(G)` wymaga dokładnie zgodnego zestawu obiektów A i B tej samej generacji `G`; nie miesza `A_G` z `B_(G+N)` i nie „uzupełnia” ich zgadywanymi danymi.
+**R-02.** `restoreSnapshot(G)` requires an exactly matching set of A and B objects of the same generation `G`; it does not mix `A_G` with `B_(G+N)` and does not "fill in" with guessed data.
 
-**R-03.** Odzyskiwanie przeprowadza pełny odczyt i kontrolę kompletności do nowego zestawu udziałów lub do wskazanego, jawnego folderu eksportowego. Nie może modyfikować ani usuwać jedynej sprawdzonej kopii zapasowej.
+**R-03.** Recovery performs a full read and completeness check into a new set of shares or into a specified plaintext export folder. It must not modify or delete the only verified backup copy.
 
-**R-04.** Po odzyskaniu użytkownik może utworzyć nową roboczą SD z kopii udziału B, a następnie kontynuować pracę w nowej generacji. Zgubioną kartę traktować jako potencjalnie skopiowaną — nie obiecywać jej zdalnego unieważnienia.
+**R-04.** After recovery the user can create a new working SD from a copy of share B, and then continue working in a new generation. Treat the lost card as potentially copied — do not promise its remote revocation.
 
-### 5.7. Integralność, poufność i zagrożenia
+### 5.7. Integrity, confidentiality and threats
 
-- **I-01:** Główne zapewnienie z teorii informacji dotyczy samej *poufności* jednego idealnie losowego udziału, nie dostępności, integralności, bezpieczeństwa hosta ani dowodu pochodzenia danych.
-- **I-02:** Dla MVP sprawdzać integralność przypadkową: sumy kontrolne każdej części liczone na tej samej części, zgodność ID, rozmiaru, wersji i korzeni. Sam checksum nie chroni przed celową podmianą udziału. Mechanizm autentyczności przed atakującym modyfikującym nośnik wymaga osobnej decyzji kryptograficznej, która nie może podważyć własności pojedynczego udziału.
-- **I-03:** Nie umieszczać na pojedynczym udziale jawnych znaczników, hashy czy MAC-ów liczonych z **plaintextu**, które mogłyby ujawnić informację o pliku.
-- **I-04:** Program ma dokumentować ryzyko wycieku przez pamięć RAM, swap, Quick Look, indeksowanie Spotlight, zapis tymczasowy aplikacji, crash dump, kopię Time Machine, backup iCloud i instalowane rozszerzenia. Funkcje ograniczające takie wycieki są dodatkowym etapem, nie założeniem domyślnym.
-- **I-05:** Wyciągnięcie SD roboczej, gdy wszystkie dane są już jawne w aplikacji, nie usuwa ich z pamięci Maca. Nie gwarantować odporności na malware ani użytkownika administracyjnego.
-- **I-06:** Nazwy i pojemność plików w aktywnym folderze mogą pojawić się poza magazynem udziałów wskutek działania systemu i aplikacji — obowiązkowy threat model musi to uwzględniać.
+- **I-01:** The main information-theoretic assurance concerns only the *confidentiality* of a single perfectly random share, not availability, integrity, host security or proof of data provenance.
+- **I-02:** For the MVP check accidental integrity: checksums of each part computed over that same part, consistency of ID, size, version and roots. A checksum alone does not protect against deliberate share substitution. A mechanism for authenticity against an attacker modifying the medium requires a separate cryptographic decision, which must not undermine the single-share property.
+- **I-03:** Do not place on a single share plaintext markers, hashes or MACs computed from the **plaintext** that could reveal information about the file.
+- **I-04:** The program must document the risk of leaks through RAM, swap, Quick Look, Spotlight indexing, application temporary saves, crash dumps, Time Machine copies, iCloud backup and installed extensions. Features limiting such leaks are an additional stage, not a default assumption.
+- **I-05:** Removing the working SD when all data is already in plaintext in an application does not remove it from the Mac's memory. Do not guarantee resistance to malware or an administrative user.
+- **I-06:** File names and sizes in the active folder may appear outside the share store as a result of system and application activity — the mandatory threat model must account for this.
 
 ## 6. Critical Path
 
-1. **CP-01 / Start projektu:** stworzyć repozytorium, README, manifest, niniejszą spec, testy i bazowy threat model. Nie projektować UI przed ustaleniem modelu danych.
-2. **CP-02 / Minimalny silnik:** testowy CLI `init`, `put`, `get` dla dwóch katalogów na osobnych lokalizacjach testowych; maska CSPRNG, XOR, jawne błędy, testy bajtowe.
-3. **CP-03 / Immutable object store:** obiekty A/B + wersjonowany podzielony katalog logiczny, nowe maski przy zmianach, brak nadpisania wersji.
-4. **CP-04 / Transakcje:** utrwalenie obu udziałów, wspólny korzeń, recovery po przerwanym zapisie i zbieranie śmieci oparte na referencjach.
-5. **CP-05 / Migawki:** `snapshot create/list/pin`, generacje, niezmienne historyczne bloki A/B, bez APFS-volume snapshot.
-6. **CP-06 / Recovery:** backup na zapasową SD, `READY`, test utraty roboczej SD, przywrócenie ostatniego punktu i stworzenie nowej roboczej SD.
-7. **CP-07 / FUSE:** wyłącznie po pozytywnym spike sprawdzającym macFUSE 5.5 `backend=fskit` na docelowej wersji macOS; adapter FUSE do stabilnego Core bez logiki kryptograficznej w adapterze.
-8. **CP-08 / UX:** SwiftUI, wybór nośników, montowanie, backup/restore, historia punktów i czytelne komunikaty.
-9. **CP-09 / Walidacja:** testy awarii, fuzz, retencja, pomiar szybkości, analiza bezpieczeństwa; dopiero potem demonstracja na niesensytywnych plikach.
+1. **CP-01 / Project start:** create the repository, README, manifest, this spec, tests and a baseline threat model. Do not design the UI before the data model is settled.
+2. **CP-02 / Minimal engine:** test CLI `init`, `put`, `get` for two folders in separate test locations; CSPRNG mask, XOR, explicit errors, byte tests.
+3. **CP-03 / Immutable object store:** A/B objects + a versioned split logical catalog, new masks on changes, no overwriting of versions.
+4. **CP-04 / Transactions:** persisting both shares, a common root, recovery after an interrupted write and reference-based garbage collection.
+5. **CP-05 / Snapshots:** `snapshot create/list/pin`, generations, immutable historical A/B blocks, no APFS-volume snapshot.
+6. **CP-06 / Recovery:** backup to the spare SD, `READY`, test of losing the working SD, restoring the last point and creating a new working SD.
+7. **CP-07 / FUSE:** only after a positive spike checking macFUSE 5.5 `backend=fskit` on the target macOS version; a FUSE adapter to a stable Core with no cryptographic logic in the adapter.
+8. **CP-08 / UX:** SwiftUI, media selection, mounting, backup/restore, point history and clear messages.
+9. **CP-09 / Validation:** failure tests, fuzz, retention, speed measurement, security analysis; only then a demonstration on non-sensitive files.
 
-**Koniec ścieżki krytycznej:** użytkownik może korzystać z plików testowych w Finderze, wykonać poprawny punkt odzyskiwania, zgubić roboczą SD i odzyskać stan katalogu z tej migawki bez ręcznego XOR.
+**End of the critical path:** the user can use test files in Finder, create a valid recovery point, lose the working SD and recover the folder state from that snapshot without manual XOR.
 
 ## 7. Control Gates
 
-Każda bramka podaje jednoznaczną weryfikację. **Błąd dowolnej bramki blokuje oznaczenie etapu jako ukończonego**; wszystkie testy powinny działać automatycznie w CI, z wyjątkiem jawnie oznaczonych testów sprzętowych.
+Each gate gives an unambiguous verification. **Failure of any gate blocks marking the stage as completed**; all tests should run automatically in CI, except explicitly marked hardware tests.
 
-| Gate | Warunek PASS | Rodzaj dowodu |
+| Gate | PASS condition | Kind of evidence |
 |---|---|---|
-| CG-01 | `get(put(X)) == X` dla 0 B, 1 B, 4 KiB, 1 MiB, 5 MiB, 1 GiB (test opcjonalny nocny) i plików binarnych | Unit/integration |
-| CG-02 | Każda edycja tworzy inne ID maski; żadna maska nie jest używana w dwóch wersjach bloku | Unit/property |
-| CG-03 | Brak poprawnej SD uniemożliwia montowanie; błędna SD jest odrzucana | Integration/E2E |
-| CG-04 | Po `fsync` oba udziały i manifest wytrzymują czysty restart i test odtworzenia | Integration |
-| CG-05 | Przerwanie po każdym kroku zapisu/commit kończy się ostatnim wspólnym zatwierdzonym stanem albo jednoznacznym błędem | Fault injection |
-| CG-06 | `createSnapshot()` zapisuje historyczny korzeń, bez snapshotu całego APFS i bez kopiowania całego plaintextu | Integration |
-| CG-07 | `snapshot G1` i późniejszy zapis `G2` pozwalają nadal odczytać dokładne `G1` przy poprawnych udziałach | Integration |
-| CG-08 | Zapasowa SD `B_G1` + migawka `A_G1` odtwarzają dokładne bajty z `G1` | Recovery E2E |
-| CG-09 | Zapasowa SD `B_G1` nie jest błędnie używana do odtworzenia nowych bloków z `A_G2` | Negative recovery |
-| CG-10 | Przerwanie backupu pozostawia poprzedni `READY`; nie oznacza przerwanego punktu jako `READY` | Fault injection |
-| CG-11 | Brak miejsca na backup nie kasuje ostatniej działającej kopii i zwraca błąd | Negative integration |
-| CG-12 | Brak stale widocznego plaintextu w magazynach A/B, logach silnika i nazwach obiektów, w ramach zdefiniowanego testu | Security inspection |
-| CG-13 | Nie ma wywołań wymagających wyłączenia SIP/AMFI; mount działa na docelowym Macu przez backend FSKit macFUSE | Manual hardware gate |
-| CG-14 | `README.md` i UI określają CSPRNG jako gwarancję **praktyczną**, a nie informacyjno-teoretyczną | Documentation review |
-| CG-15 | Po każdej rundzie jest zapisane zagrożenie, przegląd regresji bezpieczeństwa i test lub uzasadnienie braku testu | Security review |
-| CG-16 | Zależność macFUSE ma zweryfikowane warunki licencji dla rodzaju dystrybucji; komercyjne bundlowanie bez zgody jest zabronione | License review |
+| CG-01 | `get(put(X)) == X` for 0 B, 1 B, 4 KiB, 1 MiB, 5 MiB, 1 GiB (optional nightly test) and binary files | Unit/integration |
+| CG-02 | Every edit creates a different mask ID; no mask is used in two versions of a block | Unit/property |
+| CG-03 | Absence of a valid SD prevents mounting; a wrong SD is rejected | Integration/E2E |
+| CG-04 | After `fsync` both shares and the manifest survive a clean restart and a restore test | Integration |
+| CG-05 | Interruption after every write/commit step ends with the last common committed state or an unambiguous error | Fault injection |
+| CG-06 | `createSnapshot()` records a historical root, without a whole-APFS snapshot and without copying all plaintext | Integration |
+| CG-07 | `snapshot G1` and a later write `G2` still allow reading the exact `G1` with valid shares | Integration |
+| CG-08 | Spare SD `B_G1` + snapshot `A_G1` restore the exact bytes from `G1` | Recovery E2E |
+| CG-09 | Spare SD `B_G1` is not wrongly used to restore new blocks from `A_G2` | Negative recovery |
+| CG-10 | Interrupting a backup leaves the previous `READY`; it does not mark the interrupted point as `READY` | Fault injection |
+| CG-11 | Lack of space for a backup does not erase the last working copy and returns an error | Negative integration |
+| CG-12 | No persistently visible plaintext in A/B stores, engine logs and object names, within the defined test | Security inspection |
+| CG-13 | No calls requiring SIP/AMFI to be disabled; mount works on the target Mac via the macFUSE FSKit backend | Manual hardware gate |
+| CG-14 | `README.md` and the UI describe the CSPRNG as a **practical** guarantee, not an information-theoretic one | Documentation review |
+| CG-15 | After each round a threat, a security regression review and a test or justification for the lack of a test are recorded | Security review |
+| CG-16 | The macFUSE dependency has verified license terms for the kind of distribution; commercial bundling without consent is forbidden | License review |
 
-**Zakazy release (negative gates):** nie wolno zareklamować MVP jako „P=NP-proof”; nie wolno automatycznie usuwać ostatniego backupu; nie wolno dać aplikacji prawa zapisu do wszystkich nośników bez świadomego wyboru użytkownika; nie wolno włączyć kext/reduced security tylko dla poprawienia wydajności; nie wolno używać prawdziwych tajnych dokumentów przed przejściem bramek awarii i recovery.
+**Release prohibitions (negative gates):** the MVP must not be advertised as "P=NP-proof"; the last backup must not be deleted automatically; the application must not be given write access to all media without the user's conscious choice; kext/reduced security must not be enabled just to improve performance; real secret documents must not be used before the failure and recovery gates have passed.
 
 ## 8. Expected Outcome
 
-**Direct effect:** Na Macu powstaje katalog XorDock działający po podłączeniu roboczej karty SD. Pliki są zapisane jako rozdzielone udziały na SSD i SD. Użytkownik może tworzyć migawki chronionego katalogu, synchronizować zapasową SD i przywrócić ostatni punkt po utracie roboczej karty.
+**Direct effect:** A XorDock folder is created on the Mac, working when the working SD card is connected. Files are stored as split shares on the SSD and the SD. The user can create snapshots of the protected folder, synchronize the spare SD and restore the last point after losing the working card.
 
-**Measurable effect:** mierzyć przyrost miejsca dla jednego punktu odzyskiwania, liczbę zmienionych bloków do synchronizacji, odczyt/zapis małych i dużych plików, czas montowania i odtwarzania 1 GiB. Nie deklarować progów wydajności przed pomiarem. Dla wybranych testów odtworzenie musi dawać identyczny SHA-256 plaintextu *w narzędziu testowym*, nie przechowywany jako publiczny znacznik na jednym udziale.
+**Measurable effect:** measure the space growth for one recovery point, the number of changed blocks to synchronize, read/write of small and large files, the time to mount and restore 1 GiB. Do not declare performance thresholds before measuring. For selected tests the restore must yield an identical SHA-256 of the plaintext *in the test tool*, not stored as a public marker on a single share.
 
-**Side effects:** wymagana podwójna objętość aktywnych udziałów, dodatkowa historia A, opóźnienie SD, ryzyko awarii nośnika, brak dostępności bez karty, brak odtwarzania zmian po dacie backupu, ryzyko jawnych kopii poza XorDock.
+**Side effects:** double the volume of active shares required, additional A history, SD latency, risk of medium failure, no availability without the card, no restore of changes after the backup date, risk of plaintext copies outside XorDock.
 
-**Rollback:** Program ma udostępniać świadomy eksport jawnych plików przy obecności obu udziałów. Nie usuwa ich automatycznie ani nie twierdzi, że eksport jest nadal zabezpieczony. Po eksporcie użytkownik może bezpiecznie odmontować XorDock. Deinstalacja aplikacji bez eksportu nie gwarantuje zachowania dostępu do danych.
+**Rollback:** The program must provide a deliberate export of plaintext files when both shares are present. It does not delete them automatically nor claim that the export is still protected. After exporting, the user can safely unmount XorDock. Uninstalling the application without exporting does not guarantee continued access to the data.
 
 ## 9. Additional Information
 
-### ADR — decyzje techniczne
+### ADR — technical decisions
 
-- **ADR-001:** Silnik Rust, niezależny od UI/FSKit/FUSE; adapter FUSE wyłącznie tłumaczy operacje plikowe na API silnika.
-- **ADR-002:** SwiftUI dla zarządzania wolumenem i nośnikami. Pierwszy milestone może być wyłącznie CLI.
-- **ADR-003:** macFUSE >=5.5.0 z `backend=fskit` jako pierwszy kandydat. Wykonać test montowania i testy zgodności przed związaniem architektury. Nie wymagamy własnego entitlementu `com.apple.developer.fskit.fsmodule`, ponieważ nie tworzymy własnego rozszerzenia FSKit.
-- **ADR-004:** CSPRNG Apple przez `SecRandomCopyBytes` i jawne sprawdzenie statusu; nie zakładać dostępu do surowego TRNG w Secure Enclave.
-- **ADR-005:** Copy-on-write realizowany we własnym obiektowym store i manifestach, *nie* przez snapshoty wolumenu APFS. APFS `clonefile()` wyłącznie jako późniejsza optymalizacja.
-- **ADR-006:** W MVP tylko dwa fizyczne udziały A/B. Zapasowa SD jest kopią B **konkretnej wersji**, a nie trzecim udziałem Shamira.
-- **ADR-007:** Prototyp jest niezależny od Mac App Store. Przy komercyjnej integracji macFUSE sprawdzić warunki licencji i w razie potrzeby uzyskać zgodę/licencję lub zmienić warstwę montowania.
+- **ADR-001:** Rust engine, independent of UI/FSKit/FUSE; the FUSE adapter only translates file operations into the engine API.
+- **ADR-002:** SwiftUI for managing the volume and media. The first milestone may be CLI only.
+- **ADR-003:** macFUSE >=5.5.0 with `backend=fskit` as the first candidate. Perform a mount test and compatibility tests before committing to the architecture. We do not require our own `com.apple.developer.fskit.fsmodule` entitlement, because we do not create our own FSKit extension.
+- **ADR-004:** Apple CSPRNG via `SecRandomCopyBytes` with explicit status checking; do not assume access to the raw TRNG in the Secure Enclave.
+- **ADR-005:** Copy-on-write implemented in our own object store and manifests, *not* via APFS volume snapshots. APFS `clonefile()` only as a later optimization.
+- **ADR-006:** In the MVP only two physical shares A/B. The spare SD is a copy of B **of a specific version**, not a third Shamir share.
+- **ADR-007:** The prototype is independent of the Mac App Store. For commercial integration of macFUSE check the license terms and, if needed, obtain consent/license or change the mounting layer.
 
-### Założenia i konsekwencje bezpieczeństwa
+### Assumptions and security consequences
 
-- Zdobycie jednego *idealnie losowego* udziału jest informacyjno-teoretycznie niewystarczające do odtworzenia danych. Nie oznacza to, że wynik `SecRandomCopyBytes` ma doskonałą tajność OTP.
-- Karta SD jest kopiowalna; „fizyczna obecność karty” nie znaczy, że żaden przeciwnik nie skopiował udziału B wcześniej.
-- Brak fizycznej separacji (np. dwa katalogi na tym samym SSD) nie chroni przed skopiowaniem całego SSD.
-- Zapasowa B w sejfie nie zabezpiecza przed awarią SSD Maca; do tego potrzebny jest osobny backup migawki A, przechowywany niezależnie.
-- Do doskonałej tajności 100 GB dowolnych danych potrzebny jest odpowiednio długi pełnoentropijny materiał dla każdej wersji ochrony; testy statystyczne pseudolosowego strumienia nie dowodzą tej własności.
-- Wariant pod P = NP wymaga osobnej specyfikacji dla walidacji źródła rzeczywistej losowości, ochrony historii wersji, integralności i kompleksowego audytu wycieków.
+- Obtaining one *perfectly random* share is information-theoretically insufficient to restore the data. This does not mean that the output of `SecRandomCopyBytes` has OTP perfect secrecy.
+- The SD card is copyable; "physical presence of the card" does not mean that no adversary copied share B earlier.
+- Lack of physical separation (e.g. two folders on the same SSD) does not protect against copying the whole SSD.
+- The spare B in the vault does not protect against failure of the Mac's SSD; that requires a separate backup of the A snapshot, stored independently.
+- Perfect secrecy of 100 GB of arbitrary data requires sufficiently long full-entropy material for each protection version; statistical tests of a pseudorandom stream do not prove this property.
+- A variant for P = NP requires a separate spec for validating the true randomness source, protecting version history, integrity and a comprehensive leak audit.
 
 ### Rejected alternatives
 
-1. Całodyskowy XorDock — odrzucony dla pierwszej wersji ze względu na boot, zgodność i trudne odzyskiwanie.
-2. Migawki całego APFS — odrzucone, bo chcemy wersjonować tylko chroniony udział i nie ingerować w cały wolumen.
-3. Zwykły plik klucza AES na SD — nie realizuje fizycznego podziału informacji.
-4. Klucz Shamir 2 z 3 dla samych krótkich sekretów — nie zapewnia doskonałej tajności samych plików przy P = NP.
-5. iPhone/NAS jako aktywny backend — po MVP; wymaga dodatkowego projektu transportu i modelu podsłuchu.
-6. Własny natywny FSKit od pierwszego dnia — niepotrzebny do prototypu i zwiększa obciążenia podpisywaniem/uprawnieniami.
+1. Full-disk XorDock — rejected for the first version because of boot, compatibility and difficult recovery.
+2. Whole-APFS snapshots — rejected, because we want to version only the protected share and not interfere with the whole volume.
+3. An ordinary AES key file on the SD — does not achieve physical splitting of information.
+4. A Shamir 2-of-3 key for short secrets only — does not provide perfect secrecy of the files themselves under P = NP.
+5. iPhone/NAS as an active backend — after the MVP; requires an additional transport design and an eavesdropping model.
+6. Our own native FSKit from day one — unnecessary for the prototype and increases signing/entitlement burdens.
 
-### Otwarte kwestie blokujące produkt produkcyjny, nie prototyp
+### Open issues blocking a production product, not the prototype
 
-- Dokładna obsługa spójności Finder/Quick Look, `xattr`, `mmap`, Office autosave, SQLite-on-FUSE i aplikacji tworzących pliki tymczasowe.
-- Integracja bezpośrednio z FSKit zamiast macFUSE, jeśli licencja, wydajność lub model dystrybucji tego wymaga.
-- Poziom autentyczności i integralności wobec złośliwego modyfikowania udziału.
-- Reguły retencji, backup A, szczegóły odtwarzania po utracie obydwu nośników.
-- Zewnętrzne źródło fizycznej losowości oraz walidacja pełnoentropijnej ilości danych.
-- Niezależny audyt bezpieczeństwa i jakości źródła losowości.
+- Exact handling of Finder/Quick Look consistency, `xattr`, `mmap`, Office autosave, SQLite-on-FUSE and applications creating temporary files.
+- Direct integration with FSKit instead of macFUSE, if the license, performance or distribution model requires it.
+- Level of authenticity and integrity against malicious modification of a share.
+- Retention rules, backup of A, details of restoring after losing both media.
+- An external source of physical randomness and validation of the full-entropy amount of data.
+- An independent audit of security and of the quality of the randomness source.
 
-### Kontekst i referencje
+### Context and references
 
-- Rondo: https://workwithrondo.com/ — dziewięć sekcji, artifacts `specs/`, `README`, `CHANGELOG`, testy oraz przegląd bezpieczeństwa po zmianach.
-- macFUSE: https://macfuse.github.io/ i https://github.com/macfuse/macfuse/wiki/FUSE-Backends — backend FSKit, `backend=fskit`, ograniczenia API.
-- macFUSE License: https://github.com/macfuse/macfuse/blob/release/macfuse/LICENSE.txt — ograniczenia komercyjnego bundlowania binariów.
+- Rondo: https://workwithrondo.com/ — nine sections, artifacts `specs/`, `README`, `CHANGELOG`, tests and a security review after changes.
+- macFUSE: https://macfuse.github.io/ and https://github.com/macfuse/macfuse/wiki/FUSE-Backends — FSKit backend, `backend=fskit`, API limitations.
+- macFUSE License: https://github.com/macfuse/macfuse/blob/release/macfuse/LICENSE.txt — restrictions on commercial bundling of binaries.
 - Apple SecRandomCopyBytes: https://developer.apple.com/documentation/security/secrandomcopybytes(_:_:_:)
 - Apple Platform Security: https://support.apple.com/guide/security/random-number-generation-seca0c73a75b/web
 
-### Proces Rondo / CDD
+### Rondo / CDD process
 
-Dla każdej kolejnej funkcji utworzyć nowy plik `specs/SPEC-00N-*.md` z dziewięcioma sekcjami. Po implementacji aktualizować `CHANGELOG.md` wyłącznie tym, co faktycznie ukończono, oraz `README.md` zgodnie ze stanem kodu. Testy i bramki bezpieczeństwa mają być dowodem dostarczenia zmiany. Nie zamykać specyfikacji, jeśli krytyczna luka ma status „do naprawienia później”.
+For each subsequent feature create a new file `specs/SPEC-00N-*.md` with nine sections. After implementation update `CHANGELOG.md` only with what was actually completed, and `README.md` according to the state of the code. Tests and security gates are to be the proof of delivering the change. Do not close a spec if a critical gap has the status "to be fixed later".
 
 
-### Realizacja (2026-11-22, dopisane przez wykonawcę)
+### Implementation (2026-11-22, added by the implementer)
 
-#### Decyzje właściciela i odstępstwa
+#### Owner's decisions and deviations
 
-| ID | Decyzja | Uzasadnienie |
+| ID | Decision | Justification |
 |---|---|---|
-| A-01 | **Rdzeń w Go, nie w Rust** (odstępstwo od ADR-001). Decyzja właściciela 2026-11-22 po pytaniu wykonawcy. | Silnik z S001 (udziały, commit A→B, odzyskiwanie po awarii, GC) był przetestowany; przepisanie dałoby drugą implementację formatu (MANIFEST M2). Rust z Homebrew był też uszkodzony na stanowisku. Go jest bezpieczny pamięciowo jak Rust; adapter FUSE nie zawiera kryptografii (ADR-001 zachowany co do podziału odpowiedzialności). |
-| A-02 | Projekt **nie** startuje od zera (§2 mówi inaczej): S004 przejmuje silnik S001 i rozszerza go. Inwentarz §4 mapujemy na istniejące artefakty: `core/` → `internal/split`, `internal/vault`; `fuse-adapter/` → `internal/fusefs` (logika) + `internal/fusemount` (most cgo do libfuse3); `tests/*` → `*_test.go` przy pakietach; `scripts/fault-injection/` → haki `Options.Hook` w testach; `docs/engineering-manifesto.md` → istniejący `MANIFEST.md`. | Zgodność z konwencją repozytorium (testy Go przy pakietach, jeden manifest). |
-| A-03 | Maski z `SecRandomCopyBytes` przez cgo, kod wyniku sprawdzany (D-06 1:1). Deterministyczne źródło TEST_ONLY leży tylko w pliku `_test.go`, więc nie może trafić do binarki. | D-06, ADR-004. |
-| A-04 | Migawki zapisane w indeksie (dzielonym XOR), nie w jawnym pliku. Każda zmiana listy migawek to zwykły commit A→B. | D-04 (metadane chronione), T-01 (ten sam protokół spójności). |
-| A-05 | T-01 „prepared/committed”: realizuje to istniejący protokół: obiekty + fsync, bariera `F_FULLFSYNC` na obu nośnikach, superblok A (stan przygotowany), superblok B (zatwierdzony). Przy otwarciu: dokończ albo wycofaj; inne stany to jawny błąd (F-02, T-02). | Bez zmiany formatu; pokryte `TestCrashAtEveryStage`. |
-| A-06 | `chmod`/`chown` przyjmowane bez skutku (odstępstwo od F-03 „jawny błąd”). Uprawnienia nie są przechowywane: pliki 0600, katalogi 0700, właściciel montujący. | Backend FSKit macFUSE ustawia tryb przy każdym `mkdir`/`create`; błąd z `chmod` blokował tworzenie plików (E2E 2026-11-22). |
-| A-07 | `rename` z flagą zamiany miejscami (`RENAME_SWAP`) zwraca `ENOTSUP`; `RENAME_EXCL` obsługiwany. `xattr`, symlinki, twarde linki: nieobsługiwane (ENOSYS/ENOTSUP). | F-03: brak pozornego sukcesu. |
-| A-08 | Backup wymaga **jednocześnie** karty roboczej i zapasowej (druga przez czytnik USB). B-01 opisuje zamianę kart w jednym gnieździe, ale udziałów B nie wolno buforować na SSD (F-04, G-02), a bufor w RAM dla dużej migawki jest niepraktyczny. | Bezpieczeństwo ponad wygodę; do rewizji w CP-08. |
-| A-09 | Odzyskiwanie (`recover restore`) tworzy **nowy sejf z nowymi maskami** na nowej karcie, zamiast kopiować udział B na nową kartę roboczą (R-04). | Zgubiona karta może być skopiowana (R-04). Przy kopii B jej maski pasowałyby do odtworzonych udziałów A. Stary udział A i karta zapasowa zostają nietknięte (R-03); program zaleca usunięcie starego A po sprawdzeniu. |
-| A-10 | Retencja: `backup prune` zostawia tylko najnowszy punkt READY i zdejmuje przypięcia starszych; migawkę przypiętą przez punkt można usunąć dopiero po prune. Nic nie dzieje się automatycznie (B-04). | Jawna decyzja użytkownika. |
-| A-11 | Migawki i backup tylko przy odmontowanym sejfie (CLI bierze tę samą blokadę `flock` co montowanie). | T-03: jeden piszący na wolumen. |
-| A-12 | macFUSE 5.5.0 zainstalowany przez właściciela do użytku prywatnego (prototyp). CG-16: licencja BSD z klauzulą 4: bundlowanie binarki macFUSE z oprogramowaniem komercyjnym (także automatyczna instalacja) wymaga pisemnej zgody autora. xordock **nie** bundluje ani nie instaluje macFUSE. | ADR-007. Przed dystrybucją komercyjną: zgoda albo zmiana warstwy montowania. |
+| A-01 | **Core in Go, not in Rust** (deviation from ADR-001). Owner's decision 2026-11-22 after the implementer's question. | The S001 engine (shares, A→B commit, crash recovery, GC) was tested; a rewrite would produce a second implementation of the format (MANIFEST M2). Rust from Homebrew was also broken on the workstation. Go is memory-safe like Rust; the FUSE adapter contains no cryptography (ADR-001 preserved as to the division of responsibility). |
+| A-02 | The project does **not** start from scratch (§2 says otherwise): S004 takes over the S001 engine and extends it. We map the §4 inventory to existing artefacts: `core/` → `internal/split`, `internal/vault`; `fuse-adapter/` → `internal/fusefs` (logic) + `internal/fusemount` (cgo bridge to libfuse3); `tests/*` → `*_test.go` next to the packages; `scripts/fault-injection/` → `Options.Hook` hooks in tests; `docs/engineering-manifesto.md` → the existing `MANIFEST.md`. | Consistency with the repository convention (Go tests next to packages, one manifest). |
+| A-03 | Masks from `SecRandomCopyBytes` via cgo, result code checked (D-06 1:1). The deterministic TEST_ONLY source lives only in a `_test.go` file, so it cannot end up in the binary. | D-06, ADR-004. |
+| A-04 | Snapshots recorded in the index (XOR-split), not in a plaintext file. Every change of the snapshot list is an ordinary A→B commit. | D-04 (protected metadata), T-01 (same consistency protocol). |
+| A-05 | T-01 "prepared/committed": implemented by the existing protocol: objects + fsync, an `F_FULLFSYNC` barrier on both media, superblock A (prepared state), superblock B (committed). On open: complete or roll back; other states are an explicit error (F-02, T-02). | No format change; covered by `TestCrashAtEveryStage`. |
+| A-06 | `chmod`/`chown` accepted without effect (deviation from F-03 "explicit error"). Permissions are not stored: files 0600, folders 0700, owner is the mounting user. | The macFUSE FSKit backend sets the mode on every `mkdir`/`create`; an error from `chmod` blocked file creation (E2E 2026-11-22). |
+| A-07 | `rename` with the swap flag (`RENAME_SWAP`) returns `ENOTSUP`; `RENAME_EXCL` supported. `xattr`, symlinks, hard links: unsupported (ENOSYS/ENOTSUP). | F-03: no apparent success. |
+| A-08 | Backup requires the working card and the spare card **at the same time** (the second via a USB reader). B-01 describes swapping cards in one slot, but B shares must not be buffered on the SSD (F-04, G-02), and a RAM buffer for a large snapshot is impractical. | Security over convenience; to be revisited in CP-08. |
+| A-09 | Recovery (`recover restore`) creates a **new vault with new masks** on a new card, instead of copying share B to a new working card (R-04). | The lost card may have been copied (R-04). With a copy of B, its masks would match the restored A shares. The old share A and the spare card remain untouched (R-03); the program recommends deleting the old A after verification. |
+| A-10 | Retention: `backup prune` keeps only the newest READY point and removes the pins of older ones; a snapshot pinned by a point can be deleted only after prune. Nothing happens automatically (B-04). | Explicit user decision. |
+| A-11 | Snapshots and backup only with the vault unmounted (the CLI takes the same `flock` lock as mounting). | T-03: one writer per volume. |
+| A-12 | macFUSE 5.5.0 installed by the owner for private use (prototype). CG-16: BSD license with clause 4: bundling the macFUSE binary with commercial software (including automatic installation) requires the author's written consent. xordock does **not** bundle or install macFUSE. | ADR-007. Before commercial distribution: consent or a change of the mounting layer. |
 
-#### Środowisko (CP-01)
+#### Environment (CP-01)
 
-macOS 27.0 (26A428), Apple Silicon, Go 1.27.4, Xcode 27.2 (cgo/clang), macFUSE 5.5.0 (libfuse3 3.18.3, backend FSKit, rozszerzenie włączone w Ustawieniach systemowych). Karta robocza: SD HFS+ w czytniku MacBooka Pro.
+macOS 27.0 (26A428), Apple Silicon, Go 1.27.4, Xcode 27.2 (cgo/clang), macFUSE 5.5.0 (libfuse3 3.18.3, FSKit backend, extension enabled in System Settings). Working card: HFS+ SD in the MacBook Pro reader.
 
-#### Bramki i dowody
+#### Gates and evidence
 
-| Gate | Dowód | Wynik |
+| Gate | Evidence | Result |
 |---|---|---|
-| CG-01 | `TestRoundTripAfterReopen` (0 B…3 MiB+5), `TestRandomWritesMatchModel` (300 losowych zapisów/obcięć przez adapter), `TestLargeFileSpills`; E2E: 5 MB, 30 MiB losowych danych, `cmp` po montowaniu | ✅ (1 GiB nocny: otwarte, CP-09) |
+| CG-01 | `TestRoundTripAfterReopen` (0 B…3 MiB+5), `TestRandomWritesMatchModel` (300 random writes/truncations through the adapter), `TestLargeFileSpills`; E2E: 5 MB, 30 MiB of random data, `cmp` after mounting | ✅ (1 GiB nightly: open, CP-09) |
 | CG-02 | `TestEveryWriteGetsFreshMask`, `TestTestOnlySourceDeterministic`, `TestMaskErrorStopsSplit` | ✅ |
-| CG-03 | `TestMissingCardBlocksOpen`, `TestWrongCardRejected`, `TestRecoverAfterLosingWorkingCard` (karta zapasowa odrzucona jako robocza) | ✅ |
-| CG-04 | `TestRoundTripAfterReopen`, `TestRandomWritesMatchModel` (ponowne otwarcie + fsck); E2E: fsck po odmontowaniu | ✅ (zob. R4-03: fsync przez FSKit) |
-| CG-05 | `TestCrashAtEveryStage` (13 scenariuszy), `TestTornTempFilesCleaned`, `TestInterruptedInitFinished` | ✅ |
-| CG-06 | `TestSnapshotKeepsOldVersion` (migawka dodaje tylko obiekt indeksu) | ✅ |
+| CG-03 | `TestMissingCardBlocksOpen`, `TestWrongCardRejected`, `TestRecoverAfterLosingWorkingCard` (spare card rejected as working card) | ✅ |
+| CG-04 | `TestRoundTripAfterReopen`, `TestRandomWritesMatchModel` (reopen + fsck); E2E: fsck after unmount | ✅ (see R4-03: fsync via FSKit) |
+| CG-05 | `TestCrashAtEveryStage` (13 scenarios), `TestTornTempFilesCleaned`, `TestInterruptedInitFinished` | ✅ |
+| CG-06 | `TestSnapshotKeepsOldVersion` (a snapshot adds only the index object) | ✅ |
 | CG-07 | `TestSnapshotKeepsOldVersion` | ✅ |
-| CG-08 | `TestRecoverAfterLosingWorkingCard`; E2E: backup na drugi nośnik, `recover verify/export/restore` bez karty roboczej, `cmp` 30 MiB | ✅ |
+| CG-08 | `TestRecoverAfterLosingWorkingCard`; E2E: backup to a second medium, `recover verify/export/restore` without the working card, `cmp` 30 MiB | ✅ |
 | CG-09 | `TestSpareNotUsedForNewerObjects`, `TestRecoverAfterLosingWorkingCard` | ✅ |
-| CG-10 | `TestInterruptedBackupKeepsPreviousPoint` (3 etapy) | ✅ |
+| CG-10 | `TestInterruptedBackupKeepsPreviousPoint` (3 stages) | ✅ |
 | CG-11 | `TestBackupNoSpace` | ✅ |
-| CG-12 | `TestSharesHoldNoPlaintext`, `TestSpareHoldsNoPlaintext`, `TestLogsHoldNoSecrets`; E2E: brak markera i nazw w A, B, karcie zapasowej, nowym sejfie, `/private/tmp`, `/private/var/folders` | ✅ |
-| CG-13 | E2E 2026-11-22: `mount` z `backend=fskit`, bez kext, SIP/AMFI włączone, bez płatnego konta Apple | ✅ (ręcznie) |
-| CG-14 | `TestKindIsHonest`; komunikaty CLI, README | ✅ |
-| CG-15 | `docs/bezpieczenstwo/2026-11-22-runda-S004.md` | ✅ |
-| CG-16 | A-12 | ✅ (prototyp prywatny) |
+| CG-12 | `TestSharesHoldNoPlaintext`, `TestSpareHoldsNoPlaintext`, `TestLogsHoldNoSecrets`; E2E: no marker or names in A, B, the spare card, the new vault, `/private/tmp`, `/private/var/folders` | ✅ |
+| CG-13 | E2E 2026-11-22: `mount` with `backend=fskit`, no kext, SIP/AMFI enabled, no paid Apple account | ✅ (manual) |
+| CG-14 | `TestKindIsHonest`; CLI messages, README | ✅ |
+| CG-15 | `docs/security/2026-11-22-round-S004.md` | ✅ |
+| CG-16 | A-12 | ✅ (private prototype) |
 
-#### Pomiary (E2E, karta SD HFS+, SSD z FileVault)
+#### Measurements (E2E, HFS+ SD card, SSD with FileVault)
 
-Zapis przez Findera/FSKit: 30 MiB w 2,9 s (~10 MiB/s, jak silnik w S001). Mały plik (utworzenie + zapis + zamknięcie): ~220 ms. Wykrycie wyjęcia karty i odmontowanie: ≤ 1,25 s. Migawka: 1 obiekt (indeks). Backup 30 MiB (33 obiekty) na obraz dysku: < 2 s.
+Write via Finder/FSKit: 30 MiB in 2.9 s (~10 MiB/s, like the engine in S001). Small file (create + write + close): ~220 ms. Detecting card removal and unmounting: ≤ 1.25 s. Snapshot: 1 object (index). Backup of 30 MiB (33 objects) to a disk image: < 2 s.

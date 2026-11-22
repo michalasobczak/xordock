@@ -1,13 +1,13 @@
-// Package fusefs tłumaczy operacje systemu plików (FUSE, ścieżki) na API
-// silnika sejfu (S004 CP-07). Nie zawiera logiki kryptograficznej: podział,
-// maski i commit robi internal/vault.
+// Package fusefs translates file system operations (FUSE, paths) into the
+// vault engine API (S004 CP-07). It contains no cryptographic logic: splitting,
+// masks and commit are done by internal/vault.
 //
-// Zapisy trafiają do buforów w RAM (jawna treść tylko w pamięci, M24) i są
-// zatwierdzane jednym commitem przy flush, fsync, release albo odmontowaniu.
-// fsync kończy się sukcesem dopiero po utrwaleniu obu udziałów (T-02).
-// Przy wielu zmienionych blokach pełne bloki są zapisywane wcześniej jako
-// obiekty (bez commitu), żeby duży plik nie wymagał całej treści w RAM;
-// przy awarii takie obiekty są sierotami i GC usuwa je przy otwarciu.
+// Writes go to RAM buffers (plain content only in memory, M24) and are
+// committed in a single commit on flush, fsync, release or unmount.
+// fsync succeeds only after both shares are synced (T-02).
+// With many changed blocks, full blocks are written earlier as
+// objects (without a commit), so a large file does not need all its content in RAM;
+// after a crash such objects are orphans and GC removes them on open.
 package fusefs
 
 import (
@@ -23,12 +23,12 @@ import (
 
 const (
 	bs = vault.BlockSize
-	// maxDirty: liczba zmienionych bloków w RAM na plik, po której pełne
-	// bloki zapisujemy jako obiekty (64 MiB przy blokach 1 MiB).
+	// maxDirty: number of changed blocks in RAM per file after which full
+	// blocks are written as objects (64 MiB with 1 MiB blocks).
 	maxDirty = 64
 )
 
-// Attr to atrybuty pliku przekazywane do FUSE.
+// Attr holds the file attributes passed to FUSE.
 type Attr struct {
 	Ino   uint64
 	Dir   bool
@@ -39,12 +39,12 @@ type Attr struct {
 type node struct {
 	ino     uint64
 	size    int64
-	blocks  []string       // "" = dziura albo blok jeszcze niezapisany
-	dirty   map[int][]byte // indeks bloku → bufor BlockSize z jawną treścią
+	blocks  []string       // "" = hole or block not yet written
+	dirty   map[int][]byte // block index → BlockSize buffer with plain content
 	changed bool
 	mtime   *time.Time
 	refs    int
-	cIdx    int // pamięć podręczna jednego czystego bloku
+	cIdx    int // cache of a single clean block
 	cache   []byte
 }
 
@@ -57,30 +57,30 @@ func (n *node) wipe() {
 	n.cache, n.cIdx = nil, -1
 }
 
-// FS to stan zamontowanego sejfu.
+// FS is the state of a mounted vault.
 type FS struct {
 	mu      sync.Mutex
 	v       *vault.Vault
-	nodes   map[uint64]*node // ino → otwarty plik
+	nodes   map[uint64]*node // ino → open file
 	handles map[uint64]*node
 	nextFH  uint64
-	down    error // karta wyjęta albo sejf w stanie błędu
+	down    error // card removed or vault in error state
 }
 
 func New(v *vault.Vault) *FS {
 	return &FS{v: v, nodes: map[uint64]*node{}, handles: map[uint64]*node{}, nextFH: 1}
 }
 
-// errProbe: stan wolumenu próbnego (S011), bez sejfu.
-var errProbe = errors.New("wolumen próbny bez sejfu")
+// errProbe: state of the probe volume (S011), without a vault.
+var errProbe = errors.New("probe volume without a vault")
 
-// NewProbe zwraca system plików bez sejfu do próbnego montowania (S011 W-03):
-// katalog główny odpowiada, każda inna operacja kończy się EIO.
+// NewProbe returns a file system without a vault for a test mount (S011 W-03):
+// the root directory responds, every other operation ends with EIO.
 func NewProbe() *FS {
 	return &FS{down: errProbe, nodes: map[uint64]*node{}, handles: map[uint64]*node{}, nextFH: 1}
 }
 
-// Errno mapuje błędy silnika na kody POSIX. Nieznany błąd to EIO, nigdy sukces.
+// Errno maps engine errors to POSIX codes. An unknown error is EIO, never success.
 func Errno(err error) syscall.Errno {
 	switch {
 	case err == nil:
@@ -105,8 +105,8 @@ func Errno(err error) syscall.Errno {
 	return syscall.EIO
 }
 
-// Unavailable przełącza wolumen w stan niedostępny (F-04): sejf w stanie
-// błędu, bufory z jawną treścią wyczyszczone, każda operacja kończy się EIO.
+// Unavailable switches the volume to the unavailable state (F-04): vault in
+// error state, plain-content buffers wiped, every operation ends with EIO.
 func (f *FS) Unavailable(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -158,7 +158,7 @@ func (f *FS) Getattr(path string) (Attr, syscall.Errno) {
 	return a, 0
 }
 
-// DirEnt to wpis katalogu.
+// DirEnt is a directory entry.
 type DirEnt struct {
 	Name string
 	Attr Attr
@@ -220,8 +220,8 @@ func (f *FS) Rmdir(path string) syscall.Errno {
 	return Errno(err)
 }
 
-// orphan: plik usunięty, ale może być otwarty. Jego zmiany już nie trafią
-// do indeksu; czyścimy bufory od razu.
+// orphan: the file was deleted but may still be open. Its changes will no longer
+// reach the index; we clear the buffers right away.
 func (f *FS) orphan(ino uint64) {
 	if n, ok := f.nodes[ino]; ok {
 		n.wipe()
@@ -229,7 +229,7 @@ func (f *FS) orphan(ino uint64) {
 	}
 }
 
-// Flagi rename z libfuse3 (renamex_np na macOS).
+// rename flags from libfuse3 (renamex_np on macOS).
 const (
 	RenameSwap = 1 << 1
 	RenameExcl = 1 << 2
@@ -248,7 +248,7 @@ func (f *FS) Rename(from, to string, flags uint) syscall.Errno {
 			return syscall.EEXIST
 		}
 	default:
-		return syscall.ENOTSUP // np. zamiana miejscami: jawny błąd, nie pozorny sukces (F-03)
+		return syscall.ENOTSUP // e.g. swap: an explicit error, not a fake success (F-03)
 	}
 	replaced, err := f.v.RenameReplacing(from, to)
 	if err == nil && replaced != 0 {
@@ -317,13 +317,13 @@ func (f *FS) node(fh uint64) (*node, syscall.Errno) {
 	return n, 0
 }
 
-// clean zwraca jawną treść niezmienionego bloku (z pamięci podręcznej).
+// clean returns the plain content of an unchanged block (from the cache).
 func (f *FS) clean(n *node, idx int) ([]byte, error) {
 	if n.cIdx == idx {
 		return n.cache, nil
 	}
 	if idx >= len(n.blocks) || n.blocks[idx] == "" {
-		return nil, nil // dziura: zera
+		return nil, nil // hole: zeros
 	}
 	data, err := f.v.ReadBlock(n.blocks[idx])
 	if err != nil {
@@ -371,7 +371,7 @@ func (f *FS) Read(fh uint64, off int64, size int) ([]byte, syscall.Errno) {
 	return out, 0
 }
 
-// dirtyBlock zwraca bufor do modyfikacji bloku idx (wczytuje obecną treść).
+// dirtyBlock returns a buffer for modifying block idx (loads the current content).
 func (f *FS) dirtyBlock(n *node, idx int) ([]byte, error) {
 	if d, ok := n.dirty[idx]; ok {
 		return d, nil
@@ -383,7 +383,7 @@ func (f *FS) dirtyBlock(n *node, idx int) ([]byte, error) {
 	}
 	copy(buf, src)
 	if limit := n.size - int64(idx)*bs; limit < bs {
-		// poza końcem pliku zawsze zera
+		// beyond the end of the file always zeros
 		clear(buf[max(limit, 0):])
 	}
 	n.dirty[idx] = buf
@@ -429,7 +429,7 @@ func (f *FS) Write(fh uint64, off int64, data []byte) (int, syscall.Errno) {
 	return len(data), 0
 }
 
-// spill zapisuje pełne zmienione bloki jako obiekty (bez commitu).
+// spill writes full changed blocks as objects (without a commit).
 func (f *FS) spill(n *node) error {
 	full := int(n.size / bs)
 	for idx, buf := range n.dirty {
@@ -478,7 +478,7 @@ func (f *FS) truncate(n *node, size int64) error {
 	return nil
 }
 
-// Truncate zmienia rozmiar pliku; fh=0 oznacza plik nieotwarty.
+// Truncate changes the file size; fh=0 means the file is not open.
 func (f *FS) Truncate(path string, fh uint64, size int64) syscall.Errno {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -517,7 +517,7 @@ func (f *FS) Truncate(path string, fh uint64, size int64) syscall.Errno {
 	return Errno(err)
 }
 
-// drop zamyka tymczasowy uchwyt utworzony w Truncate.
+// drop closes the temporary handle created in Truncate.
 func (f *FS) drop(n *node) {
 	for fh, h := range f.handles {
 		if h == n {
@@ -532,7 +532,7 @@ func (f *FS) drop(n *node) {
 	}
 }
 
-// commit zatwierdza zmiany pliku jednym commitem (oba udziały utrwalone).
+// commit commits the file's changes in a single commit (both shares synced).
 func (f *FS) commit(n *node) error {
 	if !n.changed {
 		return nil
@@ -569,7 +569,7 @@ func (f *FS) commit(n *node) error {
 	}
 	err := f.v.SetFileIno(n.ino, blocks, n.size, n.mtime)
 	if errors.Is(err, vault.ErrNotExist) {
-		err = nil // plik usunięty w trakcie: zmiany przepadają razem z nim
+		err = nil // file deleted meanwhile: the changes are lost along with it
 	}
 	if err != nil {
 		return err
@@ -584,7 +584,7 @@ func (f *FS) commit(n *node) error {
 	return nil
 }
 
-// Flush i Fsync zatwierdzają zmiany pliku.
+// Flush and Fsync commit the file's changes.
 func (f *FS) Flush(fh uint64) syscall.Errno {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -615,7 +615,7 @@ func (f *FS) Release(fh uint64) syscall.Errno {
 	return Errno(err)
 }
 
-// Utimens ustawia czas modyfikacji.
+// Utimens sets the modification time.
 func (f *FS) Utimens(path string, mtime time.Time) syscall.Errno {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -634,7 +634,7 @@ func (f *FS) Utimens(path string, mtime time.Time) syscall.Errno {
 	return Errno(f.v.SetModTime(e.Ino, mtime))
 }
 
-// SyncAll zatwierdza wszystkie otwarte pliki (odmontowanie, F-05).
+// SyncAll commits all open files (unmount, F-05).
 func (f *FS) SyncAll() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -650,10 +650,10 @@ func (f *FS) SyncAll() error {
 	return first
 }
 
-// IsProbe: wolumen próbny bez sejfu (S011).
+// IsProbe: a probe volume without a vault (S011).
 func (f *FS) IsProbe() bool { return f.v == nil }
 
-// BRoot zwraca katalog udziału B (pojemność wolumenu, statfs).
+// BRoot returns the share B directory (volume capacity, statfs).
 func (f *FS) BRoot() string {
 	if f.v == nil {
 		return "/"
@@ -661,7 +661,7 @@ func (f *FS) BRoot() string {
 	return f.v.BRoot()
 }
 
-// Close czyści bufory po odmontowaniu.
+// Close clears buffers after unmounting.
 func (f *FS) Close() {
 	f.mu.Lock()
 	defer f.mu.Unlock()

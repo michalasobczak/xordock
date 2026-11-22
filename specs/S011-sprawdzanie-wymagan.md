@@ -1,111 +1,111 @@
-# S011 — Sprawdzanie wymagań przy starcie
+# S011 — Requirements check at launch
 
-- **Status:** dostarczona
-- **Data:** 2026-11-22
-- **Powiązane:** S004 (A-12, ADR-003), S007, S008, S010
+- **Status:** delivered
+- **Date:** 2026-11-22
+- **Related:** S004 (A-12, ADR-003), S007, S008, S010
 
 ## 1. TL;DR
 
-Przy starcie aplikacja sprawdza, czy są wszystkie narzędzia:
+At launch the app checks whether all the tools are present:
 
 - macOS 26+;
 - macFUSE 5.5+;
-- włączone rozszerzenie systemu plików macFUSE;
-- działający silnik `xordock`;
-- FileVault i iCloud Drive jako zalecane.
+- the macFUSE file system extension enabled;
+- a working `xordock` engine;
+- FileVault and iCloud Drive as recommended.
 
-Jeśli czegoś brakuje, pokazuje listę z przyciskiem naprawy: pobierz macFUSE albo otwórz Ustawienia systemowe. Gdy wszystko jest w porządku, nic nie pokazuje.
+If something is missing, it shows a list with a fix button: download macFUSE or open System Settings. When everything is fine, it shows nothing.
 
 ## 2. Abstract
 
-Do działania xordocka potrzebne jest oprogramowanie, którego aplikacja nie dołącza (S004 A-12: licencja macFUSE). Właściciel przy pierwszym uruchomieniu trafił na błąd „File system extension not enabled”, który wyszedł dopiero przy montowaniu, a CLI wypisało wtedy mylący sukces (naprawione w S004).
+xordock needs software that the app does not bundle (S004 A-12: macFUSE license). On first launch the owner hit the error "File system extension not enabled", which surfaced only when mounting, while the CLI then printed a misleading success (fixed in S004).
 
-Dodatkowo CLI było linkowane z `libfuse3` na sztywno. Bez macFUSE nie uruchomiłoby się wcale, także do poleceń, które macFUSE nie potrzebują (status, backup, odzyskiwanie).
+In addition, the CLI was hard-linked against `libfuse3`. Without macFUSE it would not start at all, not even for commands that do not need macFUSE (status, backup, recovery).
 
-Właściciel poprosił (2026-11-22) o sprawdzanie przy uruchomieniu, czy wszystkie narzędzia są. Decyzje wykonawcze (domyślne, do potwierdzenia):
+The owner asked (2026-11-22) for a check at launch that all the tools are present. Implementation decisions (defaults, to be confirmed):
 
-- **Wymagane (czerwone):** macOS 26+ (minimum modułu FSKit macFUSE: `LSMinimumSystemVersion` 26.0), macFUSE ≥ 5.5, rozszerzenie włączone, CLI działa.
-- **Zalecane (pomarańczowe):** FileVault, iCloud Drive (kopia A, S008).
-- **Ekran wymagań:** pokazuje się przy starcie tylko wtedy, gdy coś wymaganego nie działa. Jest też dostępny z Ustawień i z menu kłódki. Wyprzedza pytanie o samouczek.
-- **Rozszerzenie FSKit:** jego stan leży w chronionym kontenerze systemu, którego aplikacja nie może czytać. Sprawdzamy go **próbnym montowaniem** pustego wolumenu tylko do odczytu, po czym od razu odmontowujemy. Wynik zapamiętujemy dla danej wersji macFUSE, a każde udane montowanie sejfu też go potwierdza, więc próba nie powtarza się przy każdym starcie.
+- **Required (red):** macOS 26+ (the minimum of the macFUSE FSKit module: `LSMinimumSystemVersion` 26.0), macFUSE ≥ 5.5, extension enabled, CLI working.
+- **Recommended (orange):** FileVault, iCloud Drive (A copy, S008).
+- **Requirements screen:** shown at launch only when something required does not work. It is also available from Settings and from the padlock menu. It comes before the tutorial question.
+- **FSKit extension:** its state lives in a protected system container that the app cannot read. We check it with a **probe mount** of an empty read-only volume, which we unmount immediately. We remember the result for the given macFUSE version, and every successful vault mount also confirms it, so the probe is not repeated on every launch.
 
 ## 3. Objective
 
-- **Cele:**
-  - W-01 `xordock doctor [--probe-mount] [--json]`: lista sprawdzeń `{id, title, level: ok|warning|error|unknown, detail, fixLabel, fixURL}`.
-  - W-02 CLI linkuje `libfuse3` słabo. Bez macFUSE uruchamia się, `doctor` zgłasza brak, a `mount` odmawia z jasnym komunikatem zamiast awarii loadera.
-  - W-03 Próbne montowanie: system plików bez sejfu (stan „niedostępny”: katalog główny pusty, każda inna operacja EIO), montowany w katalogu tymczasowym na najwyżej 15 s.
-  - W-04 Aplikacja przy starcie uruchamia `doctor --json`. Próbę montowania dokłada, gdy wymagane rzeczy są w porządku, a stan rozszerzenia nie jest potwierdzony dla bieżącej wersji macFUSE. Arkusz „Wymagania” ma przyciski naprawy i „Sprawdź ponownie”.
-- **Poza zakresem:** instalowanie macFUSE przez aplikację, sprawdzanie kart (to robi pulpit).
-- **Kryteria sukcesu:** bramki z §7.
+- **Goals:**
+  - W-01 `xordock doctor [--probe-mount] [--json]`: a list of checks `{id, title, level: ok|warning|error|unknown, detail, fixLabel, fixURL}`.
+  - W-02 The CLI links `libfuse3` weakly. Without macFUSE it starts, `doctor` reports the absence, and `mount` refuses with a clear message instead of a loader crash.
+  - W-03 Probe mount: a file system without a vault ("unavailable" state: root directory empty, every other operation EIO), mounted in a temporary directory for at most 15 s.
+  - W-04 At launch the app runs `doctor --json`. It adds the probe mount when the required items are fine and the extension state is not confirmed for the current macFUSE version. The "Requirements" sheet has fix buttons and "Check again".
+- **Out of scope:** installing macFUSE through the app, checking the cards (the dashboard does that).
+- **Success criteria:** the gates from §7.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Rodzaj | Stan |
+| Artefact | Type | State |
 | --- | --- | --- |
-| `cmd/xordock/doctor.go` | kod | do utworzenia |
-| `internal/fusemount/probe.go`, `bridge*` | kod: próba montowania, słabe linkowanie, `Available()` | do utworzenia / do zmiany |
-| `internal/fusefs/fs.go` | kod: `NewProbe` | do zmiany |
-| `macos/Sources/XordockCore/Requirements.swift`, `XordockUI`/`XordockApp` | kod | do utworzenia / do zmiany |
+| `cmd/xordock/doctor.go` | code | to create |
+| `internal/fusemount/probe.go`, `bridge*` | code: probe mount, weak linking, `Available()` | to create / to change |
+| `internal/fusefs/fs.go` | code: `NewProbe` | to change |
+| `macos/Sources/XordockCore/Requirements.swift`, `XordockUI`/`XordockApp` | code | to create / to change |
 
 ## 5. Functional Domain Changes
 
-- Próbny wolumen nie ma dostępu do żadnego sejfu ani karty. Ma nazwę `xordock-sprawdzenie`, a jego punkt montowania jest katalogiem tymczasowym, który potem jest usuwany.
-- Brak macFUSE nie blokuje poleceń bez montowania (odzyskiwanie po awarii nadal działa).
-- Wynik próby: „ok”, „error” (rozszerzenie wyłączone albo montowanie nieudane) albo „unknown” (bez próby).
+- The probe volume has no access to any vault or card. It is named `xordock-probe`, and its mount point is a temporary directory that is deleted afterwards.
+- Missing macFUSE does not block commands that do not mount (recovery after a failure still works).
+- Probe result: "ok", "error" (extension disabled or mount failed) or "unknown" (no probe).
 
 ## 6. Critical Path
 
-1. `NewProbe` i `Probe` z testem.
-2. Słabe linkowanie z `Available()`.
+1. `NewProbe` and `Probe` with a test.
+2. Weak linking with `Available()`.
 3. `doctor`.
-4. Aplikacja.
-5. Próba na prawdziwym macFUSE.
+4. App.
+5. Probe on real macFUSE.
 
 ## 7. Control Gates
 
-| # | Bramka | Warunek | Weryfikacja | Blokuje |
+| # | Gate | Condition | Verification | Blocks |
 | --- | --- | --- | --- | --- |
-| G1 | Próbny FS | katalog główny odpowiada, każda inna operacja EIO, żadna nie panikuje bez sejfu | `go test` | commit |
-| G2 | Próba na sprzęcie | `doctor --probe-mount` daje „ok” przy włączonym rozszerzeniu; wolumen znika, katalog tymczasowy usunięty | E2E | commit |
-| G3 | Brak macFUSE | CLI z `DYLD_LIBRARY_PATH` bez libfuse3 i podmienioną ścieżką: `doctor` działa, `mount` odmawia z komunikatem | test ręczny | commit |
-| G4 | Aplikacja | dekodowanie wyniku, reguła „pokaż arkusz przy starcie tylko przy błędzie”, „próba, gdy niepotwierdzone” | `swift test` | commit |
-| G5 | **Negatywna** | próba nie dotyka katalogów sejfów ani kart | przegląd + test G1 | commit |
+| G1 | Probe FS | root directory responds, every other operation EIO, none panics without a vault | `go test` | commit |
+| G2 | Probe on hardware | `doctor --probe-mount` gives "ok" with the extension enabled; the volume disappears, the temporary directory is deleted | E2E | commit |
+| G3 | No macFUSE | CLI with `DYLD_LIBRARY_PATH` without libfuse3 and a substituted path: `doctor` works, `mount` refuses with a message | manual test | commit |
+| G4 | App | result decoding, the rule "show the sheet at launch only on error", "probe when unconfirmed" | `swift test` | commit |
+| G5 | **Negative** | the probe does not touch vault directories or cards | review + G1 test | commit |
 
 ## 8. Expected Outcome
 
-Brakujące narzędzie widać od razu przy starcie, z przyciskiem naprawy, zamiast błędu przy pierwszym montowaniu.
+A missing tool is visible right at launch, with a fix button, instead of an error on the first mount.
 
 ## 9. Additional Information
 
-- Odrzucone: czytanie stanu FSKit z kontenerów systemu (chronione, „Operation not permitted”) i `pluginkit` (moduł macFUSE nie jest tam widoczny).
-- Pobieranie macFUSE: oficjalna strona `https://macfuse.github.io/`. Aplikacja tylko ją otwiera.
+- Rejected: reading the FSKit state from system containers (protected, "Operation not permitted") and `pluginkit` (the macFUSE module is not visible there).
+- Downloading macFUSE: the official site `https://macfuse.github.io/`. The app only opens it.
 
-## Realizacja (2026-11-22)
+## Implementation (2026-11-22)
 
-- **Słabe linkowanie:**
-  - Flaga `-weak-lfuse3` jest odrzucana przez listę dozwolonych flag cgo.
-  - Zamiast niej `ops_darwin.c` ładuje `/usr/local/lib/libfuse3.4.dylib` przez `dlopen` przy pierwszym montowaniu. Ścieżka jest stała, bez przeszukiwania `DYLD_*`.
-  - Używanych jest 6 symboli; `fuse_new` to wrapper inline, więc wołamy bezpośrednio `_fuse_new_31` ze strukturą wersji jak w nagłówku.
-  - `otool -L bin/xordock` nie pokazuje już libfuse.
-  - `Mount` i `Probe` zwracają `ErrNoMacFUSE`, gdy biblioteki brak.
-- **Wolumen próbny:**
-  - `fusefs.NewProbe()` (bez sejfu, stan „niedostępny”), `FS.IsProbe()` (bez logu zatwierdzania przy odmontowaniu);
-  - `fusemount.Probe` montuje w `os.MkdirTemp`, czeka na wolumen do 15 s, odmontowuje i usuwa katalog. Na macOS 27 z macFUSE 5.5.0 trwa ok. 1 s.
+- **Weak linking:**
+  - The `-weak-lfuse3` flag is rejected by the cgo flag allowlist.
+  - Instead, `ops_darwin.c` loads `/usr/local/lib/libfuse3.4.dylib` via `dlopen` on the first mount. The path is fixed, with no `DYLD_*` search.
+  - 6 symbols are used; `fuse_new` is an inline wrapper, so we call `_fuse_new_31` directly with a version struct as in the header.
+  - `otool -L bin/xordock` no longer shows libfuse.
+  - `Mount` and `Probe` return `ErrNoMacFUSE` when the library is missing.
+- **Probe volume:**
+  - `fusefs.NewProbe()` (no vault, "unavailable" state), `FS.IsProbe()` (no commit log on unmount);
+  - `fusemount.Probe` mounts in `os.MkdirTemp`, waits up to 15 s for the volume, unmounts and deletes the directory. On macOS 27 with macFUSE 5.5.0 it takes about 1 s.
 - **`xordock doctor`:**
-  - sprawdza macOS (≥ 26), macFUSE (plist + `dlopen`, ≥ 5.5), rozszerzenie (próba tylko z `--probe-mount`), FileVault, iCloud Drive;
-  - tryb tekstowy kończy się kodem ≠ 0 przy brakach wymaganych;
-  - stałe adresy naprawy: strona macFUSE i panele Ustawień systemowych.
-- **Aplikacja:**
-  - przy starcie `model.startup()`: `doctor`, a gdy rozszerzenie niepotwierdzone dla bieżącej wersji macFUSE, `doctor --probe-mount`;
-  - wynik zapamiętany w `UserDefaults fskitConfirmedForMacFUSE`; każde udane montowanie sejfu go potwierdza;
-  - arkusz „Wymagania” pokazuje się przy starcie tylko przy brakach i wyprzedza pytanie o samouczek;
-  - dostęp: menu kłódki „Wymagania…” i Ustawienia „Sprawdź wymagania” (z próbą).
-- **Testy:**
-  - Go: `TestProbeFS` (G1, G5), `TestDoctor` (G3: brak macFUSE, stara wersja, wyłączone rozszerzenie, stary macOS, porównanie wersji);
-  - Swift: `requirementsRules` (G4), razem 17.
+  - checks macOS (≥ 26), macFUSE (plist + `dlopen`, ≥ 5.5), the extension (probe only with `--probe-mount`), FileVault, iCloud Drive;
+  - text mode exits with a code ≠ 0 when required items are missing;
+  - fixed fix URLs: the macFUSE site and System Settings panes.
+- **App:**
+  - at launch `model.startup()`: `doctor`, and when the extension is unconfirmed for the current macFUSE version, `doctor --probe-mount`;
+  - the result is remembered in `UserDefaults fskitConfirmedForMacFUSE`; every successful vault mount confirms it;
+  - the "Requirements" sheet is shown at launch only when something is missing and comes before the tutorial question;
+  - access: padlock menu "Requirements…" and Settings "Check requirements" (with a probe).
+- **Tests:**
+  - Go: `TestProbeFS` (G1, G5), `TestDoctor` (G3: no macFUSE, old version, disabled extension, old macOS, version comparison);
+  - Swift: `requirementsRules` (G4), 17 in total.
 - **E2E (G2):**
-  - `doctor --probe-mount`: „Próbne montowanie udane”, brak wolumenu i katalogu tymczasowego po próbie;
-  - sejf tymczasowy na `xor_primary`: montowanie, zapis i odczyt przez Findera z biblioteką ładowaną przez `dlopen`, odmontowanie; sejf usunięty;
-  - aplikacja przy starcie zapisała potwierdzenie dla 5.5.0.
-- **Rendery:** `docs/ui/wymagania-jasny.png`.
+  - `doctor --probe-mount`: "Probe mount succeeded", no volume and no temporary directory after the probe;
+  - temporary vault on `xor_primary`: mount, write and read through Finder with the library loaded via `dlopen`, unmount; vault removed;
+  - at launch the app saved the confirmation for 5.5.0.
+- **Renders:** `docs/ui/requirements-light.png`.

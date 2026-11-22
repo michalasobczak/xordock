@@ -15,18 +15,18 @@ import (
 	"xordock/internal/vault"
 )
 
-// ErrNoMacFUSE: brak biblioteki libfuse3 z macFUSE (S011).
-var ErrNoMacFUSE = errors.New("brak macFUSE 5.5+ (biblioteka /usr/local/lib/libfuse3.4.dylib); zainstaluj macFUSE ze strony https://macfuse.github.io/")
+// ErrNoMacFUSE: the libfuse3 library from macFUSE is missing (S011).
+var ErrNoMacFUSE = errors.New("macFUSE 5.5+ is missing (library /usr/local/lib/libfuse3.4.dylib); install macFUSE from https://macfuse.github.io/")
 
 var (
-	errFuseNew = errors.New("libfuse odrzucił opcje montowania")
-	errMount   = errors.New("montowanie nieudane: sprawdź, czy rozszerzenie macFUSE jest włączone w Ustawieniach systemowych → Ogólne → Rozszerzenia i elementy logowania → Rozszerzenia systemu plików")
+	errFuseNew = errors.New("libfuse rejected the mount options")
+	errMount   = errors.New("mount failed: check that the macFUSE extension is enabled in System Settings → General → Login Items & Extensions → File System Extensions")
 )
 
-// Mount udostępnia sejf w Finderze i blokuje do odmontowania. onMounted
-// jest wołane dopiero, gdy wolumen faktycznie jest zamontowany. Co sekundę
-// sprawdza obecność karty roboczej; po jej wyjęciu wolumen przechodzi w stan
-// niedostępny i jest wymuszenie odmontowywany (F-04, SC-03).
+// Mount exposes the vault in Finder and blocks until unmounted. onMounted
+// is called only once the volume is actually mounted. Every second it
+// checks that the working card is present; once the card is removed the volume
+// becomes unavailable and is force-unmounted (F-04, SC-03).
 func Mount(v *vault.Vault, mountpoint, volname string, onMounted func()) error {
 	if !Available() {
 		return ErrNoMacFUSE
@@ -58,7 +58,7 @@ func Mount(v *vault.Vault, mountpoint, volname string, onMounted func()) error {
 		select {
 		case <-sig:
 			if err := fs.SyncAll(); err != nil {
-				vault.Logf("xordock: zatwierdzenie przed odmontowaniem: %v", err)
+				vault.Logf("xordock: commit before unmount: %v", err)
 			}
 			unmount(mountpoint, false)
 		case <-done:
@@ -67,13 +67,13 @@ func Mount(v *vault.Vault, mountpoint, volname string, onMounted func()) error {
 	opts := fmt.Sprintf("backend=fskit,volname=%s,fsname=xordock", volname)
 	err := run(fs, mountpoint, opts)
 	if err == nil && !mounted.Load() && !IsMounted(mountpoint) {
-		// libfuse potrafi zakończyć pętlę z kodem 0, gdy montowanie się nie udało.
+		// libfuse can end the loop with code 0 when mounting failed.
 		return errMount
 	}
 	return err
 }
 
-// IsMounted: punkt montowania leży na innym urządzeniu niż jego katalog nadrzędny.
+// IsMounted: the mount point is on a different device than its parent directory.
 func IsMounted(mp string) bool {
 	var a, b syscall.Stat_t
 	if syscall.Stat(mp, &a) != nil || syscall.Stat(filepath.Dir(mp), &b) != nil {
@@ -92,8 +92,8 @@ func watchCard(fs *fusefs.FS, v *vault.Vault, mountpoint string, done <-chan str
 			return
 		case <-t.C:
 			if _, err := os.Stat(header); err != nil {
-				vault.Logf("xordock: karta robocza niedostępna, wolumen zablokowany i odmontowywany")
-				fs.Unavailable(fmt.Errorf("karta robocza wyjęta: %w", err))
+				vault.Logf("xordock: working card unavailable, volume locked and being unmounted")
+				fs.Unavailable(fmt.Errorf("working card removed: %w", err))
 				unmount(mountpoint, true)
 				return
 			}
@@ -101,7 +101,7 @@ func watchCard(fs *fusefs.FS, v *vault.Vault, mountpoint string, done <-chan str
 	}
 }
 
-// unmount odmontowuje wolumen; force=true przy utracie karty.
+// unmount unmounts the volume; force=true when the card is lost.
 func unmount(mountpoint string, force bool) {
 	args := []string{"unmount"}
 	if force {
@@ -116,7 +116,7 @@ func unmount(mountpoint string, force bool) {
 	}
 }
 
-// Unmount odmontowuje wolumen (polecenie xordock unmount).
+// Unmount unmounts the volume (the xordock unmount command).
 func Unmount(mountpoint string) error {
 	out, err := exec.Command("/usr/sbin/diskutil", "unmount", mountpoint).CombinedOutput()
 	if err != nil {

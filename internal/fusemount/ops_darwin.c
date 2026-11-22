@@ -1,5 +1,5 @@
-// Most libfuse3 (macFUSE) → Go. Tylko tłumaczenie wywołań; logika jest
-// w internal/fusefs, kryptografia w internal/vault.
+// libfuse3 (macFUSE) → Go bridge. Only translates calls; the logic is
+// in internal/fusefs, the cryptography in internal/vault.
 #include "bridge.h"
 #include <errno.h>
 #include <string.h>
@@ -107,10 +107,10 @@ static int xd_utimens(const char *p, const struct timespec tv[2], struct fuse_fi
 	return xdUtimens((char *)p, 0, tv[1].tv_sec, tv[1].tv_nsec);
 }
 
-// Uprawnień i właściciela nie przechowujemy: każdy element ma 0600/0700
-// i właściciela montującego. FSKit ustawia tryb przy każdym tworzeniu
-// elementu, więc błąd zablokowałby mkdir i create. Odstępstwo od F-03
-// opisane w S004 §9 (A-06). Element musi istnieć.
+// We do not store permissions or owner: every item has 0600/0700
+// and the mounting user as owner. FSKit sets the mode on every item
+// creation, so an error would block mkdir and create. Deviation from F-03
+// described in S004 §9 (A-06). The item must exist.
 static int xd_chmod(const char *p, mode_t m, struct fuse_file_info *fi) { (void)m; (void)fi; return xdExists((char *)p); }
 static int xd_chown(const char *p, uid_t u, gid_t g, struct fuse_file_info *fi) { (void)u; (void)g; (void)fi; return xdExists((char *)p); }
 
@@ -155,9 +155,9 @@ static const struct fuse_operations xd_ops = {
 
 static struct fuse *xd_fuse;
 
-/* S011 W-02: libfuse3 z macFUSE ładowana przy pierwszym użyciu (dlopen),
- * a nie przez loader. Bez macFUSE CLI startuje i działa poza montowaniem.
- * Ścieżka jest stała (instalacja macFUSE), bez przeszukiwania DYLD_*. */
+/* S011 W-02: libfuse3 from macFUSE is loaded on first use (dlopen),
+ * not by the loader. Without macFUSE the CLI starts and works except for mounting.
+ * The path is fixed (macFUSE installation), no DYLD_* search. */
 #include <dlfcn.h>
 
 static int xd_loaded = -1;

@@ -15,47 +15,47 @@ import (
 	"time"
 )
 
-// Format udziałów, wersja 1.
+// Share format, version 1.
 //
-// Każdy korzeń (A na SSD, B na karcie) ma:
+// Each root (A on the SSD, B on the card) has:
 //
-//	xordock.json      nagłówek: format, identyfikator sejfu, strona, nazwa, rola
-//	super             superblok: bieżący i poprzedni commit (+ suma SHA-256)
-//	obj/xx/<oid>      udział obiektu (bloku danych albo indeksu)
+//	xordock.json      header: format, vault ID, side, name, role
+//	super             superblock: current and previous commit (+ SHA-256 checksum)
+//	obj/xx/<oid>      object share (data block or index)
 //
-// Karta zapasowa (rola "backup", S004 §5.5) ma ten sam nagłówek (strona B),
-// katalog obj/ z kopiami udziałów B i katalog points/ z punktami odzyskiwania.
-// Nie ma superbloku: nie da się jej otworzyć jako karty roboczej (CG-09).
+// A spare card (role "backup", S004 §5.5) has the same header (side B),
+// an obj/ directory with copies of B shares and a points/ directory with recovery points.
+// It has no superblock: it cannot be opened as a working card (CG-09).
 //
-// Plik udziału obiektu:
+// Object share file:
 //
-//	"XDK1" | strona(1) | vault(16) | oid(16) | długość(uint32 BE) | dane | SHA-256(wszystko wcześniej)
+//	"XDK1" | side(1) | vault(16) | oid(16) | length(uint32 BE) | data | SHA-256(everything before)
 //
-// Suma kontrolna obejmuje tylko własny udział, nigdy drugi. Skrót udziału A
-// zapisany na B (lub odwrotnie) pozwoliłby nieograniczonemu przeciwnikowi
-// z jednym udziałem weryfikować hipotezy o treści, co łamie G-06.
-// Suma wykrywa przypadkowe uszkodzenia, nie celową podmianę (S001 Q-05, R-04).
+// The checksum covers only its own share, never the other. A hash of share A
+// stored on B (or vice versa) would let an unbounded adversary
+// holding one share verify hypotheses about the content, which breaks G-06.
+// The checksum detects accidental damage, not deliberate tampering (S001 Q-05, R-04).
 
 const (
 	FormatVersion = 1
-	BlockSize     = 1 << 20 // 1 MiB: mniej wywołań fsync na MiB (pomiar w S001 §8)
+	BlockSize     = 1 << 20 // 1 MiB: fewer fsync calls per MiB (measured in S001 §8)
 	magic         = "XDK1"
 	headerFile    = "xordock.json"
 	superFile     = "super"
 	objDir        = "obj"
 	idLen         = 16
 	prefixLen     = 4 + 1 + idLen + idLen + 4
-	// MaxObject ogranicza rozmiar pojedynczego obiektu (indeks może być
-	// większy niż blok). Chroni przed alokacją z uszkodzonego nagłówka.
+	// MaxObject limits the size of a single object (the index may be
+	// larger than a block). Protects against allocation from a damaged header.
 	MaxObject = 256 << 20
 )
 
 var (
-	ErrCorrupt      = errors.New("udział uszkodzony albo niezgodny")
-	ErrWrongCard    = errors.New("udział B należy do innego sejfu")
-	ErrInconsistent = errors.New("superbloki A i B są niespójne i nie da się ich bezpiecznie uzgodnić")
-	ErrBroken       = errors.New("sejf w stanie błędu po nieudanym zapisie; odmontuj i otwórz ponownie")
-	ErrSpareCard    = errors.New("to karta zapasowa (backup), nie robocza; do odzyskiwania użyj: xordock recover")
+	ErrCorrupt      = errors.New("share damaged or incompatible")
+	ErrWrongCard    = errors.New("share B belongs to a different vault")
+	ErrInconsistent = errors.New("superblocks A and B are inconsistent and cannot be safely reconciled")
+	ErrBroken       = errors.New("vault is in an error state after a failed write; unmount and open it again")
+	ErrSpareCard    = errors.New("this is a spare card (backup), not the working card; for recovery use: xordock recover")
 )
 
 type ID [idLen]byte
@@ -66,7 +66,7 @@ func ParseID(s string) (ID, error) {
 	var id ID
 	b, err := hex.DecodeString(s)
 	if err != nil || len(b) != idLen {
-		return id, fmt.Errorf("%w: zły identyfikator", ErrCorrupt)
+		return id, fmt.Errorf("%w: bad ID", ErrCorrupt)
 	}
 	copy(id[:], b)
 	return id, nil
@@ -93,8 +93,8 @@ type header struct {
 	BlockSize int       `json:"block_size"`
 	Created   time.Time `json:"created"`
 	Masks     string    `json:"masks"`
-	Role      string    `json:"role,omitempty"`  // "" = karta robocza, "backup" = zapasowa
-	Media     string    `json:"media,omitempty"` // identyfikator nośnika zapasowego
+	Role      string    `json:"role,omitempty"`  // "" = working card, "backup" = spare
+	Media     string    `json:"media,omitempty"` // spare medium ID
 }
 
 const roleBackup = "backup"
@@ -106,18 +106,18 @@ func readHeader(root string, side Side) (header, error) {
 		return h, err
 	}
 	if err := json.Unmarshal(data, &h); err != nil {
-		return h, fmt.Errorf("%w: nagłówek %c: %v", ErrCorrupt, side, err)
+		return h, fmt.Errorf("%w: header %c: %v", ErrCorrupt, side, err)
 	}
 	if h.Format != FormatVersion {
-		return h, fmt.Errorf("%w: nieobsługiwany format %d", ErrCorrupt, h.Format)
+		return h, fmt.Errorf("%w: unsupported format %d", ErrCorrupt, h.Format)
 	}
 	if h.Side != string(side) {
-		return h, fmt.Errorf("%w: oczekiwano udziału %c, jest %q", ErrCorrupt, side, h.Side)
+		return h, fmt.Errorf("%w: expected share %c, got %q", ErrCorrupt, side, h.Side)
 	}
 	return h, nil
 }
 
-// commitRec wskazuje stan sejfu: numer commitu i obiekt indeksu.
+// commitRec points to a vault state: commit number and index object.
 type commitRec struct {
 	Seq   uint64 `json:"seq"`
 	Index string `json:"index"`
@@ -131,15 +131,15 @@ type superblock struct {
 	Prev   commitRec `json:"prev"`
 }
 
-// seal zapisuje rekord JSON z sumą SHA-256 w drugiej linii (superblok, punkt
-// odzyskiwania). Suma wykrywa przypadkowe uszkodzenia, nie podmianę.
+// seal writes a JSON record with a SHA-256 checksum on the second line (superblock,
+// recovery point). The checksum detects accidental damage, not tampering.
 func seal(v any) []byte {
 	body, _ := json.Marshal(v)
 	sum := sha256.Sum256(body)
 	return append(append(body, '\n'), []byte(hex.EncodeToString(sum[:])+"\n")...)
 }
 
-// unseal sprawdza sumę i dekoduje rekord zapisany przez seal.
+// unseal checks the checksum and decodes a record written by seal.
 func unseal(data []byte, into any) error {
 	parts := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(parts) != 2 {
@@ -164,13 +164,13 @@ func readSuper(root string, side Side, vault ID) (superblock, error) {
 		return s, err
 	}
 	if err := unseal(data, &s); err != nil {
-		return s, fmt.Errorf("%w: superblok %c", ErrCorrupt, side)
+		return s, fmt.Errorf("%w: superblock %c", ErrCorrupt, side)
 	}
 	if s.Vault != vault.String() {
 		return s, ErrWrongCard
 	}
 	if s.Side != string(side) {
-		return s, fmt.Errorf("%w: superblok ze złej strony", ErrCorrupt)
+		return s, fmt.Errorf("%w: superblock from the wrong side", ErrCorrupt)
 	}
 	return s, nil
 }
@@ -192,24 +192,24 @@ func encodeShare(side Side, vault, oid ID, payload []byte) []byte {
 	return append(buf, sum[:]...)
 }
 
-// decodeShare weryfikuje udział i zwraca dane. Każda niezgodność (strona,
-// sejf, identyfikator, długość, suma) to błąd, nigdy przypadkowe dane (FR-14).
+// decodeShare verifies a share and returns the data. Any mismatch (side,
+// vault, ID, length, checksum) is an error, never random data (FR-14).
 func decodeShare(data []byte, side Side, vault, oid ID) ([]byte, error) {
 	if len(data) < prefixLen+sha256.Size {
-		return nil, fmt.Errorf("%w: za krótki udział %c/%s", ErrCorrupt, side, oid)
+		return nil, fmt.Errorf("%w: share too short %c/%s", ErrCorrupt, side, oid)
 	}
 	body, sum := data[:len(data)-sha256.Size], data[len(data)-sha256.Size:]
 	want := sha256.Sum256(body)
 	if !bytes.Equal(want[:], sum) {
-		return nil, fmt.Errorf("%w: suma udziału %c/%s", ErrCorrupt, side, oid)
+		return nil, fmt.Errorf("%w: share checksum %c/%s", ErrCorrupt, side, oid)
 	}
 	if string(body[:4]) != magic || Side(body[4]) != side ||
 		!bytes.Equal(body[5:5+idLen], vault[:]) || !bytes.Equal(body[5+idLen:5+2*idLen], oid[:]) {
-		return nil, fmt.Errorf("%w: nagłówek udziału %c/%s", ErrCorrupt, side, oid)
+		return nil, fmt.Errorf("%w: share header %c/%s", ErrCorrupt, side, oid)
 	}
 	n := binary.BigEndian.Uint32(body[5+2*idLen : prefixLen])
 	if int(n) != len(body)-prefixLen {
-		return nil, fmt.Errorf("%w: długość udziału %c/%s", ErrCorrupt, side, oid)
+		return nil, fmt.Errorf("%w: share length %c/%s", ErrCorrupt, side, oid)
 	}
 	return body[prefixLen:], nil
 }

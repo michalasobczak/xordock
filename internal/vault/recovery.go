@@ -11,34 +11,34 @@ import (
 	"xordock/internal/split"
 )
 
-// Odzyskiwanie po utracie karty roboczej (S004 §5.6). Składamy obiekty
-// z udziału A na SSD (przypiętego przez migawkę) i kopii udziału B z karty
-// zapasowej. Tylko dla punktu READY i tylko obiekty jego indeksu: nigdy nie
-// mieszamy A_G z B_(G+N) (R-02, CG-09). Nic nie zapisujemy na karcie
-// zapasowej ani w udziale A (R-03); jedynym plikiem jest blokada sejfu.
+// Recovery after losing the working card (S004 §5.6). We join objects
+// from share A on the SSD (pinned by a snapshot) and the copy of share B from the spare
+// card. Only for a READY point and only the objects of its index: we never
+// mix A_G with B_(G+N) (R-02, CG-09). We write nothing to the spare
+// card or to share A (R-03); the only file is the vault lock.
 
 type Recovery struct {
 	aRoot, spare string
 	id           ID
 	Media        string
 	lock         *os.File
-	aCopy, bCopy bool // strona jest kopią (rola backup) z rekordami punktów
+	aCopy, bCopy bool // the side is a copy (backup role) with point records
 }
 
-// OpenRecovery otwiera odzyskiwanie z udziału A (żywego albo kopii z iCloud,
-// S008) i udziału B (karty zapasowej albo roboczej). Co najmniej jedna strona
-// musi być kopią z rekordami punktów. Kopie nie są blokowane ani zmieniane.
+// OpenRecovery opens recovery from share A (live or the copy from iCloud,
+// S008) and share B (spare or working card). At least one side
+// must be a copy with point records. Copies are not locked or changed.
 func OpenRecovery(aRoot, spare string) (*Recovery, error) {
 	hA, err := readHeader(aRoot, SideA)
 	if err != nil {
-		return nil, fmt.Errorf("udział A: %w", err)
+		return nil, fmt.Errorf("share A: %w", err)
 	}
 	hS, err := readHeader(spare, SideB)
 	if err != nil {
-		return nil, fmt.Errorf("karta zapasowa: %w", err)
+		return nil, fmt.Errorf("spare card: %w", err)
 	}
 	if hS.Role != roleBackup && hA.Role != roleBackup {
-		return nil, errors.New("to karta robocza, nie zapasowa; odzyskiwanie nie jest potrzebne")
+		return nil, errors.New("this is the working card, not a spare card; recovery is not needed")
 	}
 	if hA.Vault != hS.Vault {
 		return nil, ErrWrongCard
@@ -63,8 +63,8 @@ func (r *Recovery) Close() {
 	}
 }
 
-// Points zwraca punkty READY (najnowszy pierwszy) i opisy odrzuconych.
-// Gdy obie strony są kopiami, tylko punkty obecne na obu.
+// Points returns READY points (newest first) and descriptions of rejected ones.
+// When both sides are copies, only points present on both.
 func (r *Recovery) Points() ([]Point, []string) {
 	switch {
 	case r.aCopy && r.bCopy:
@@ -79,7 +79,7 @@ func (r *Recovery) Points() ([]Point, []string) {
 			if inA[p.ID] {
 				both = append(both, p)
 			} else {
-				bad = append(bad, fmt.Sprintf("punkt %s: brak kopii udziału A", p.ID))
+				bad = append(bad, fmt.Sprintf("point %s: no share A copy", p.ID))
 			}
 		}
 		return both, append(bad, badA...)
@@ -103,10 +103,10 @@ func (r *Recovery) point(id string) (Point, error) {
 			return p, nil
 		}
 	}
-	return Point{}, fmt.Errorf("%w o identyfikatorze %s", ErrNoPoint, id)
+	return Point{}, fmt.Errorf("%w with ID %s", ErrNoPoint, id)
 }
 
-// View otwiera stan katalogu z punktu odzyskiwania (pusty id: najnowszy).
+// View opens the directory state from a recovery point (empty id: the newest).
 func (r *Recovery) View(pointID string) (*View, Point, error) {
 	p, err := r.point(pointID)
 	if err != nil {
@@ -114,20 +114,20 @@ func (r *Recovery) View(pointID string) (*View, Point, error) {
 	}
 	ix, err := loadIndexFrom(r.aRoot, r.spare, r.id, p.Index)
 	if err != nil {
-		return nil, p, fmt.Errorf("indeks punktu %s: %w", p.ID, err)
+		return nil, p, fmt.Errorf("index of point %s: %w", p.ID, err)
 	}
 	allowed := map[string]bool{p.Index: true}
 	ix.refs(allowed)
 	read := func(oid ID) ([]byte, error) {
 		if !allowed[oid.String()] {
-			return nil, fmt.Errorf("%w: obiekt %s spoza punktu odzyskiwania", ErrCorrupt, oid)
+			return nil, fmt.Errorf("%w: object %s outside the recovery point", ErrCorrupt, oid)
 		}
 		return readPair(r.aRoot, r.spare, r.id, oid)
 	}
 	return &View{ix: ix, read: read}, p, nil
 }
 
-// Verify składa w RAM każdy plik punktu i sprawdza kompletność (R-03).
+// Verify joins every file of the point in RAM and checks completeness (R-03).
 func (r *Recovery) Verify(pointID string) (Point, int, error) {
 	w, p, err := r.View(pointID)
 	if err != nil {
@@ -141,7 +141,7 @@ func (r *Recovery) Verify(pointID string) (Point, int, error) {
 		}
 		data, err := w.GetFile(path)
 		if err != nil {
-			return p, n, fmt.Errorf("plik nr %d: %w", e.Ino, err)
+			return p, n, fmt.Errorf("file no. %d: %w", e.Ino, err)
 		}
 		split.Wipe(data)
 		n++
@@ -149,21 +149,21 @@ func (r *Recovery) Verify(pointID string) (Point, int, error) {
 	return p, n, nil
 }
 
-// ExportTo zapisuje jawne pliki z czytnika do nowego katalogu. Pliki
-// wynikowe NIE są chronione (rollback S004 §8).
+// ExportTo writes plain files from the reader to a new directory. The resulting
+// files are NOT protected (rollback S004 §8).
 func ExportTo(r FileReader, dir string) (int, error) {
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
-		return 0, fmt.Errorf("%s już istnieje", dir)
+		return 0, fmt.Errorf("%s already exists", dir)
 	}
 	n := 0
 	for _, p := range r.Paths() {
 		e, _ := r.Stat(p)
 		if p != Clean(p) {
-			return n, fmt.Errorf("%w: niekanoniczna ścieżka", ErrCorrupt)
+			return n, fmt.Errorf("%w: non-canonical path", ErrCorrupt)
 		}
 		dst := filepath.Join(dir, filepath.FromSlash(p))
 		if rel, err := filepath.Rel(dir, dst); err != nil || strings.HasPrefix(rel, "..") {
-			return n, fmt.Errorf("%w: ścieżka poza katalogiem eksportu", ErrCorrupt)
+			return n, fmt.Errorf("%w: path outside the export directory", ErrCorrupt)
 		}
 		if e.Dir {
 			if err := os.MkdirAll(dst, 0o700); err != nil {
@@ -186,8 +186,8 @@ func ExportTo(r FileReader, dir string) (int, error) {
 	return n, nil
 }
 
-// CopyInto przepisuje drzewo plików do innego sejfu. Każdy blok dostaje
-// nową maskę, więc zgubiona karta nie pasuje do nowych udziałów (R-04).
+// CopyInto rewrites a file tree into another vault. Every block gets
+// a new mask, so a lost card does not match the new shares (R-04).
 func CopyInto(r FileReader, dst *Vault) (int, error) {
 	n := 0
 	for _, p := range r.Paths() {

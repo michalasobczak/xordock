@@ -17,14 +17,14 @@ import (
 	"xordock/internal/split"
 )
 
-// Logf to jedyny kanał logów pakietu. Logujemy tylko identyfikatory, liczby
-// i błędy, nigdy treść plików, nazw plików ani masek (FR-15, CG-09).
+// Logf is the package's only log channel. We log only IDs, numbers
+// and errors, never file content, file names or masks (FR-15, CG-09).
 var Logf = log.Printf
 
-// Entry opisuje plik albo katalog w indeksie. Indeks (z nazwami plików) jest
-// przechowywany jako obiekt dzielony XOR, więc nazwy nie leżą jawnie na A.
+// Entry describes a file or directory in the index. The index (with file names) is
+// stored as an XOR-split object, so names are not in plain form on A.
 type Entry struct {
-	Ino     uint64    `json:"i"` // stały numer pliku (przeżywa zmianę nazwy); 1 = katalog główny
+	Ino     uint64    `json:"i"` // stable file number (survives renames); 1 = root directory
 	Dir     bool      `json:"d,omitempty"`
 	Size    int64     `json:"s"`
 	ModTime time.Time `json:"t"`
@@ -34,14 +34,14 @@ type Entry struct {
 type Index struct {
 	Entries map[string]*Entry `json:"e"`
 	NextIno uint64            `json:"n"`
-	Snaps   []Snapshot        `json:"s,omitempty"` // migawki (S004 §5.4), też dzielone XOR
+	Snaps   []Snapshot        `json:"s,omitempty"` // snapshots (S004 §5.4), also XOR-split
 }
 
 func newIndex() *Index {
 	return &Index{Entries: map[string]*Entry{"/": {Ino: 1, Dir: true, ModTime: time.Now().UTC()}}, NextIno: 2}
 }
 
-// allocIno przydziela nowy numer pliku.
+// allocIno allocates a new file number.
 func (ix *Index) allocIno() uint64 {
 	if ix.NextIno < 2 {
 		ix.NextIno = 2
@@ -51,8 +51,8 @@ func (ix *Index) allocIno() uint64 {
 	return n
 }
 
-// ensureInos nadaje numery wpisom z indeksów sprzed ich wprowadzenia
-// (deterministycznie, w kolejności ścieżek).
+// ensureInos assigns numbers to entries from indexes created before numbers existed
+// (deterministically, in path order).
 func (ix *Index) ensureInos() {
 	ix.Entries["/"].Ino = 1
 	var missing []string
@@ -105,10 +105,10 @@ func (ix *Index) refs(into map[string]bool) {
 }
 
 type Options struct {
-	// Masks: źródło masek; domyślnie split.CSPRNG.
+	// Masks: the mask source; split.CSPRNG by default.
 	Masks split.MaskSource
-	// Hook: punkt wstrzykiwania awarii w testach (CG-07). Zwrócenie błędu
-	// przerywa operację tak, jakby proces zginął na danym etapie.
+	// Hook: fault injection point in tests (CG-07). Returning an error
+	// aborts the operation as if the process died at that stage.
 	Hook func(stage string) error
 }
 
@@ -126,10 +126,10 @@ type Vault struct {
 	prevIdx  *Index
 	broken   error
 	lock     *os.File
-	inos     map[uint64]string          // ino → ścieżka dla bieżącego indeksu
-	dirty    map[string]bool            // katalogi z nowymi obiektami, do utrwalenia przy commicie
-	snapRefs map[string]map[string]bool // indeks migawki → obiekty, które przypina
-	Recovery string                     // opis odzyskiwania przy otwarciu, pusty gdy nie było potrzeby
+	inos     map[uint64]string          // ino → path for the current index
+	dirty    map[string]bool            // directories with new objects, to sync on commit
+	snapRefs map[string]map[string]bool // snapshot index → objects it pins
+	Recovery string                     // description of recovery on open, empty when none was needed
 }
 
 func (o Options) masksOrDefault() split.MaskSource {
@@ -139,7 +139,7 @@ func (o Options) masksOrDefault() split.MaskSource {
 	return split.CSPRNG{}
 }
 
-// Close zwalnia blokadę sejfu.
+// Close releases the vault lock.
 func (v *Vault) Close() {
 	if v.lock != nil {
 		v.lock.Close()
@@ -161,31 +161,31 @@ func (v *Vault) at(stage string) error {
 	return nil
 }
 
-// fail przełącza sejf w stan błędu: żadne kolejne zatwierdzenie nie przejdzie (FR-18).
+// fail switches the vault to the error state: no further commit will succeed (FR-18).
 func (v *Vault) fail(err error) error {
 	if v.broken == nil {
 		v.broken = err
-		Logf("xordock: sejf %s w stanie błędu: %v", v.id, err)
+		Logf("xordock: vault %s in error state: %v", v.id, err)
 	}
 	return err
 }
 
-// Broken zwraca błąd, który przełączył sejf w stan błędu, albo nil.
+// Broken returns the error that switched the vault to the error state, or nil.
 func (v *Vault) Broken() error { v.mu.Lock(); defer v.mu.Unlock(); return v.broken }
 
-// MarkBroken pozwala warstwie montowania zgłosić utratę karty.
+// MarkBroken lets the mount layer report the loss of the card.
 func (v *Vault) MarkBroken(err error) { v.mu.Lock(); defer v.mu.Unlock(); v.fail(err) }
 
-// Create inicjalizuje nowy sejf. Odmawia, jeśli którakolwiek strona ma już
-// zatwierdzony stan. Przerwana inicjalizacja jest dokańczana przez Open (FR-06).
+// Create initializes a new vault. It refuses if either side already has
+// a committed state. An interrupted initialization is completed by Open (FR-06).
 func Create(aRoot, bRoot, name string, opt Options) (*Vault, error) {
 	for _, r := range []string{aRoot, bRoot} {
 		if _, err := os.Stat(filepath.Join(r, superFile)); err == nil {
-			return nil, fmt.Errorf("%s: sejf już istnieje", r)
+			return nil, fmt.Errorf("%s: vault already exists", r)
 		}
 	}
 	if same, _ := sameDevice(aRoot, bRoot); same {
-		return nil, errors.New("udziały A i B muszą leżeć na różnych nośnikach")
+		return nil, errors.New("shares A and B must be on different devices")
 	}
 	id, err := newID()
 	if err != nil {
@@ -210,7 +210,7 @@ func Create(aRoot, bRoot, name string, opt Options) (*Vault, error) {
 	return v, nil
 }
 
-// SameDeviceCheck można wyłączyć w testach, gdzie A i B leżą w jednym katalogu tymczasowym.
+// SameDeviceCheck can be disabled in tests, where A and B are in one temporary directory.
 var SameDeviceCheck = true
 
 func sameDevice(a, b string) (bool, error) {
@@ -225,7 +225,7 @@ func sameDevice(a, b string) (bool, error) {
 	return devOf(a) == devOf(b), nil
 }
 
-// ReadVaultID zwraca identyfikator sejfu z nagłówka udziału A.
+// ReadVaultID returns the vault ID from the share A header.
 func ReadVaultID(aRoot string) (ID, string, error) {
 	h, err := readHeader(aRoot, SideA)
 	if err != nil {
@@ -235,30 +235,30 @@ func ReadVaultID(aRoot string) (ID, string, error) {
 	return id, h.Name, err
 }
 
-// ReadCopyID zwraca identyfikator i nazwę sejfu z nagłówka kopii udziału A
-// (rola backup, S008). Żywy udział A jest odrzucany.
+// ReadCopyID returns the vault ID and name from the header of a share A copy
+// (backup role, S008). A live share A is rejected.
 func ReadCopyID(dir string) (ID, string, error) {
 	h, err := readHeader(dir, SideA)
 	if err != nil {
 		return ID{}, "", err
 	}
 	if h.Role != roleBackup {
-		return ID{}, "", errors.New("to żywy udział A, nie kopia")
+		return ID{}, "", errors.New("this is a live share A, not a copy")
 	}
 	id, err := ParseID(h.Vault)
 	return id, h.Name, err
 }
 
-// Open otwiera sejf, uzgadnia superbloki po ewentualnej awarii i sprząta
-// osierocone obiekty.
+// Open opens a vault, reconciles the superblocks after a possible crash and cleans up
+// orphaned objects.
 func Open(aRoot, bRoot string, opt Options) (*Vault, error) {
 	hA, err := readHeader(aRoot, SideA)
 	if err != nil {
-		return nil, fmt.Errorf("udział A: %w", err)
+		return nil, fmt.Errorf("share A: %w", err)
 	}
 	hB, err := readHeader(bRoot, SideB)
 	if err != nil {
-		return nil, fmt.Errorf("udział B: %w", err)
+		return nil, fmt.Errorf("share B: %w", err)
 	}
 	if hB.Role == roleBackup {
 		return nil, ErrSpareCard
@@ -267,7 +267,7 @@ func Open(aRoot, bRoot string, opt Options) (*Vault, error) {
 		return nil, ErrWrongCard
 	}
 	if hA.BlockSize != BlockSize {
-		return nil, fmt.Errorf("%w: rozmiar bloku %d, obsługiwany %d", ErrCorrupt, hA.BlockSize, BlockSize)
+		return nil, fmt.Errorf("%w: block size %d, supported %d", ErrCorrupt, hA.BlockSize, BlockSize)
 	}
 	id, err := ParseID(hA.Vault)
 	if err != nil {
@@ -285,12 +285,12 @@ func Open(aRoot, bRoot string, opt Options) (*Vault, error) {
 	}
 	if v.idx, err = v.loadIndex(v.cur.Index); err != nil {
 		v.Close()
-		return nil, fmt.Errorf("indeks: %w", err)
+		return nil, fmt.Errorf("index: %w", err)
 	}
 	if v.prev.Seq > 0 {
 		if v.prevIdx, err = v.loadIndex(v.prev.Index); err != nil {
-			// Poprzedni stan to tylko punkt powrotu; bez niego sejf działa.
-			Logf("xordock: poprzedni indeks niedostępny (%v), pomijam", err)
+			// The previous state is only a fallback point; the vault works without it.
+			Logf("xordock: previous index unavailable (%v), skipping", err)
 			v.prev, v.prevIdx = commitRec{}, nil
 		}
 	}
@@ -309,21 +309,21 @@ func (v *Vault) reconcile() error {
 		}
 		return nil
 	case errA == nil && errB == nil && sA.Cur.Seq == sB.Cur.Seq+1 && sA.Prev == sB.Cur:
-		// Awaria między zapisem superbloku A i B.
+		// Crash between writing superblock A and B.
 		return v.finishOrRollback(sA, &sB)
 	case errA == nil && errors.Is(errB, fs.ErrNotExist) && sA.Cur.Seq == 1:
-		// Awaria w trakcie inicjalizacji.
+		// Crash during initialization.
 		return v.finishOrRollback(sA, nil)
 	case errA != nil:
-		return fmt.Errorf("superblok A: %w", errA)
+		return fmt.Errorf("superblock A: %w", errA)
 	case errB != nil:
-		return fmt.Errorf("superblok B: %w", errB)
+		return fmt.Errorf("superblock B: %w", errB)
 	}
 	return ErrInconsistent
 }
 
-// finishOrRollback dokańcza commit, jeśli wszystkie jego obiekty są kompletne
-// po obu stronach; w przeciwnym razie wraca do ostatniego wspólnego stanu.
+// finishOrRollback completes a commit if all its objects are complete
+// on both sides; otherwise it returns to the last common state.
 func (v *Vault) finishOrRollback(sA superblock, sB *superblock) error {
 	var older *Index
 	if sB != nil {
@@ -337,16 +337,16 @@ func (v *Vault) finishOrRollback(sA superblock, sB *superblock) error {
 			return err
 		}
 		v.cur, v.prev = sA.Cur, sA.Prev
-		v.Recovery = fmt.Sprintf("dokończono przerwany commit %d", sA.Cur.Seq)
+		v.Recovery = fmt.Sprintf("completed interrupted commit %d", sA.Cur.Seq)
 	} else {
 		if sB == nil {
-			return fmt.Errorf("%w: niedokończona inicjalizacja", ErrInconsistent)
+			return fmt.Errorf("%w: unfinished initialization", ErrInconsistent)
 		}
 		if err := v.writeSuper(v.aRoot, SideA, sB.Cur, sB.Prev); err != nil {
 			return err
 		}
 		v.cur, v.prev = sB.Cur, sB.Prev
-		v.Recovery = fmt.Sprintf("wycofano przerwany commit %d, stan %d", sA.Cur.Seq, sB.Cur.Seq)
+		v.Recovery = fmt.Sprintf("rolled back interrupted commit %d, state %d", sA.Cur.Seq, sB.Cur.Seq)
 	}
 	Logf("xordock: %s", v.Recovery)
 	return nil
@@ -385,23 +385,23 @@ func (v *Vault) loadIndex(oid string) (*Index, error) {
 	return loadIndexFrom(v.aRoot, v.bRoot, v.id, oid)
 }
 
-// readShares czyta oba udziały obiektu, weryfikuje je i zwraca jawne dane.
-// Wywołujący odpowiada za split.Wipe na wyniku.
+// readShares reads both shares of an object, verifies them and returns the plain data.
+// The caller is responsible for split.Wipe on the result.
 func (v *Vault) readShares(oid ID) ([]byte, error) {
 	return readPair(v.aRoot, v.bRoot, v.id, oid)
 }
 
-// readPair składa obiekt z udziału A (aRoot) i B (bRoot: karta robocza albo
-// zapasowa). Brak lub uszkodzenie którejkolwiek strony to błąd, nigdy
-// zastępcze dane (G-03, R-02).
+// readPair joins an object from share A (aRoot) and B (bRoot: working or
+// spare card). A missing or damaged side is an error, never
+// substitute data (G-03, R-02).
 func readPair(aRoot, bRoot string, vault, oid ID) ([]byte, error) {
 	rawA, err := os.ReadFile(objPath(aRoot, oid))
 	if err != nil {
-		return nil, fmt.Errorf("udział A %s: %w", oid, err)
+		return nil, fmt.Errorf("share A %s: %w", oid, err)
 	}
 	rawB, err := os.ReadFile(objPath(bRoot, oid))
 	if err != nil {
-		return nil, fmt.Errorf("udział B %s: %w", oid, err)
+		return nil, fmt.Errorf("share B %s: %w", oid, err)
 	}
 	a, err := decodeShare(rawA, SideA, vault, oid)
 	if err != nil {
@@ -414,7 +414,7 @@ func readPair(aRoot, bRoot string, vault, oid ID) ([]byte, error) {
 	return split.Join(a, b)
 }
 
-// loadIndexFrom wczytuje indeks złożony z udziałów w podanych korzeniach.
+// loadIndexFrom loads an index joined from the shares in the given roots.
 func loadIndexFrom(aRoot, bRoot string, vault ID, oid string) (*Index, error) {
 	id, err := ParseID(oid)
 	if err != nil {
@@ -427,35 +427,35 @@ func loadIndexFrom(aRoot, bRoot string, vault ID, oid string) (*Index, error) {
 	defer split.Wipe(data)
 	ix := &Index{}
 	if err := json.Unmarshal(data, ix); err != nil || ix.Entries == nil || ix.Entries["/"] == nil {
-		return nil, fmt.Errorf("%w: indeks %s", ErrCorrupt, oid)
+		return nil, fmt.Errorf("%w: index %s", ErrCorrupt, oid)
 	}
 	if err := ix.validate(); err != nil {
-		return nil, fmt.Errorf("%w: indeks %s: %v", ErrCorrupt, oid, err)
+		return nil, fmt.Errorf("%w: index %s: %v", ErrCorrupt, oid, err)
 	}
 	ix.ensureInos()
 	return ix, nil
 }
 
-// validate sprawdza, że każda ścieżka jest kanoniczna, bezwzględna i ma
-// katalog nadrzędny. Chroni eksport i montowanie przed ścieżkami z „..”
-// w uszkodzonym albo podmienionym indeksie (S005, R4-02).
+// validate checks that every path is canonical, absolute and has a
+// parent directory. Protects export and mounting from paths with ".."
+// in a damaged or tampered index (S005, R4-02).
 func (ix *Index) validate() error {
 	for p := range ix.Entries {
 		if p != Clean(p) || !strings.HasPrefix(p, "/") {
-			return fmt.Errorf("niekanoniczna ścieżka w indeksie")
+			return fmt.Errorf("non-canonical path in the index")
 		}
 		if p == "/" {
 			continue
 		}
 		parent, ok := ix.Entries[path.Dir(p)]
 		if !ok || !parent.Dir {
-			return fmt.Errorf("wpis bez katalogu nadrzędnego")
+			return fmt.Errorf("entry without a parent directory")
 		}
 	}
 	return nil
 }
 
-// ReadBlock zwraca jawną treść bloku. Wywołujący czyści bufor.
+// ReadBlock returns the plain content of a block. The caller wipes the buffer.
 func (v *Vault) ReadBlock(oid string) ([]byte, error) {
 	id, err := ParseID(oid)
 	if err != nil {
@@ -464,8 +464,8 @@ func (v *Vault) ReadBlock(oid string) ([]byte, error) {
 	return v.readShares(id)
 }
 
-// WriteBlock zapisuje nowy obiekt z nową maską i zwraca jego identyfikator.
-// Obiekt nie jest widoczny, dopóki nie wskaże go zatwierdzony indeks.
+// WriteBlock writes a new object with a new mask and returns its ID.
+// The object is not visible until a committed index points to it.
 func (v *Vault) WriteBlock(data []byte) (string, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -478,7 +478,7 @@ func (v *Vault) writeObject(data []byte) (ID, error) {
 		return ID{}, ErrBroken
 	}
 	if len(data) > MaxObject {
-		return ID{}, errors.New("obiekt za duży")
+		return ID{}, errors.New("object too large")
 	}
 	oid, err := newID()
 	if err != nil {
@@ -492,25 +492,25 @@ func (v *Vault) writeObject(data []byte) (ID, error) {
 		return ID{}, v.fail(err)
 	}
 	if err := writeAtomic(objPath(v.aRoot, oid), encodeShare(SideA, v.id, oid, a), false); err != nil {
-		return ID{}, v.fail(fmt.Errorf("zapis udziału A: %w", err))
+		return ID{}, v.fail(fmt.Errorf("writing share A: %w", err))
 	}
 	if err := v.at("share-B"); err != nil {
 		return ID{}, v.fail(err)
 	}
 	if err := writeAtomic(objPath(v.bRoot, oid), encodeShare(SideB, v.id, oid, b), false); err != nil {
-		return ID{}, v.fail(fmt.Errorf("zapis udziału B: %w", err))
+		return ID{}, v.fail(fmt.Errorf("writing share B: %w", err))
 	}
 	if v.dirty == nil {
 		v.dirty = map[string]bool{}
 	}
 	v.dirty[filepath.Dir(objPath(v.aRoot, oid))] = true
 	v.dirty[filepath.Dir(objPath(v.bRoot, oid))] = true
-	split.Wipe(b) // maska nie zostaje w pamięci dłużej niż potrzeba
+	split.Wipe(b) // the mask does not stay in memory longer than needed
 	return oid, nil
 }
 
-// Commit atomowo zmienia indeks. mutate działa na kopii; błąd z mutate nie
-// zmienia stanu. Commit jest trwały dopiero po zapisie obu superbloków (FR-10).
+// Commit changes the index atomically. mutate works on a copy; an error from mutate does not
+// change the state. The commit is durable only after both superblocks are written (FR-10).
 func (v *Vault) Commit(mutate func(ix *Index) error) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -543,7 +543,7 @@ func (v *Vault) commitIndex(nix *Index) error {
 	}
 	for _, r := range []string{v.aRoot, v.bRoot} {
 		if err := barrier(r); err != nil {
-			return v.fail(fmt.Errorf("utrwalenie %s: %w", r, err))
+			return v.fail(fmt.Errorf("syncing %s: %w", r, err))
 		}
 	}
 	newCur := commitRec{Seq: v.cur.Seq + 1, Index: oid.String()}
@@ -551,13 +551,13 @@ func (v *Vault) commitIndex(nix *Index) error {
 		return v.fail(err)
 	}
 	if err := v.writeSuper(v.aRoot, SideA, newCur, v.cur); err != nil {
-		return v.fail(fmt.Errorf("superblok A: %w", err))
+		return v.fail(fmt.Errorf("superblock A: %w", err))
 	}
 	if err := v.at("super-B"); err != nil {
 		return v.fail(err)
 	}
 	if err := v.writeSuper(v.bRoot, SideB, newCur, v.cur); err != nil {
-		return v.fail(fmt.Errorf("superblok B: %w", err))
+		return v.fail(fmt.Errorf("superblock B: %w", err))
 	}
 	oldLive, okOld := v.live()
 	v.prev, v.prevIdx = v.cur, v.idx
@@ -565,7 +565,7 @@ func (v *Vault) commitIndex(nix *Index) error {
 	v.inos = nil
 	newLive, okNew := v.live()
 	if !okOld || !okNew {
-		Logf("xordock: GC wstrzymane: nie da się ustalić obiektów przypiętych przez migawki")
+		Logf("xordock: GC paused: cannot determine the objects pinned by snapshots")
 		return nil
 	}
 	for id := range oldLive {
@@ -576,9 +576,9 @@ func (v *Vault) commitIndex(nix *Index) error {
 	return nil
 }
 
-// live zwraca obiekty osiągalne z bieżącego i poprzedniego stanu oraz ze
-// wszystkich migawek. ok=false, gdy indeksu którejś migawki nie da się
-// odczytać: wtedy GC nie może niczego usuwać (S004 S-04).
+// live returns the objects reachable from the current and previous state and from
+// all snapshots. ok=false when the index of some snapshot cannot be
+// read: then GC must not delete anything (S004 S-04).
 func (v *Vault) live() (map[string]bool, bool) {
 	m := map[string]bool{}
 	if v.cur.Index != "" {
@@ -608,8 +608,8 @@ func (v *Vault) live() (map[string]bool, bool) {
 	return m, ok
 }
 
-// snapLive zwraca (z pamięci podręcznej) obiekty przypięte przez migawkę.
-// Indeksy są niezmienne, więc wpis nigdy się nie przedawnia.
+// snapLive returns (from the cache) the objects pinned by a snapshot.
+// Indexes are immutable, so an entry never goes stale.
 func (v *Vault) snapLive(indexOID string) (map[string]bool, error) {
 	if r, ok := v.snapRefs[indexOID]; ok {
 		return r, nil
@@ -632,17 +632,17 @@ func (v *Vault) removeObject(hexID string) {
 	if err != nil {
 		return
 	}
-	// Najpierw B: bez maski stary udział A jest bezużyteczny.
+	// B first: without the mask the old share A is useless.
 	os.Remove(objPath(v.bRoot, id))
 	os.Remove(objPath(v.aRoot, id))
 }
 
-// gcAll usuwa obiekty nieosiągalne z bieżącego i poprzedniego stanu
-// (np. pozostałości przerwanego zapisu).
+// gcAll deletes objects unreachable from the current and previous state
+// (e.g. leftovers of an interrupted write).
 func (v *Vault) gcAll() {
 	live, ok := v.live()
 	if !ok {
-		Logf("xordock: GC pominięte: indeks migawki niedostępny")
+		Logf("xordock: GC skipped: snapshot index unavailable")
 		return
 	}
 	n := 0
@@ -659,7 +659,7 @@ func (v *Vault) gcAll() {
 		})
 	}
 	if n > 0 {
-		Logf("xordock: usunięto %d osieroconych udziałów", n)
+		Logf("xordock: deleted %d orphaned shares", n)
 	}
 }
 
@@ -672,14 +672,14 @@ func cleanTmp(root string) {
 	})
 }
 
-// --- odczyt indeksu ---
+// --- index reads ---
 
 func Clean(p string) string {
 	p = path.Clean("/" + p)
 	return p
 }
 
-// Stat zwraca kopię wpisu.
+// Stat returns a copy of an entry.
 func (v *Vault) Stat(p string) (Entry, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -697,7 +697,7 @@ type DirItem struct {
 	Entry Entry
 }
 
-// List zwraca bezpośrednie dzieci katalogu, posortowane po nazwie.
+// List returns the direct children of a directory, sorted by name.
 func (v *Vault) List(dir string) []DirItem {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -713,7 +713,7 @@ func (v *Vault) List(dir string) []DirItem {
 	return out
 }
 
-// ByIno zwraca ścieżkę i kopię wpisu o danym numerze.
+// ByIno returns the path and a copy of the entry with the given number.
 func (v *Vault) ByIno(ino uint64) (string, Entry, bool) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -732,7 +732,7 @@ func (v *Vault) ByIno(ino uint64) (string, Entry, bool) {
 	return p, e, true
 }
 
-// Paths zwraca wszystkie ścieżki w indeksie (posortowane).
+// Paths returns all paths in the index (sorted).
 func (v *Vault) Paths() []string {
 	v.mu.Lock()
 	defer v.mu.Unlock()

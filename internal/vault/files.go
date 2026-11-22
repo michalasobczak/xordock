@@ -8,16 +8,16 @@ import (
 	"time"
 )
 
-// Operacje na ścieżkach. Każda kończy się jednym commitem, więc jest atomowa
-// względem awarii (FR-22). Używane przez adapter FUSE, eksport i testy.
+// Path operations. Each ends with a single commit, so it is atomic
+// with respect to crashes (FR-22). Used by the FUSE adapter, export and tests.
 
 var (
 	ErrNotExist = fs.ErrNotExist
 	ErrExist    = fs.ErrExist
-	ErrNotDir   = errors.New("nie jest katalogiem")
-	ErrIsDir    = errors.New("jest katalogiem")
-	ErrNotEmpty = errors.New("katalog nie jest pusty")
-	ErrRoot     = errors.New("operacja niedozwolona na katalogu głównym")
+	ErrNotDir   = errors.New("not a directory")
+	ErrIsDir    = errors.New("is a directory")
+	ErrNotEmpty = errors.New("directory not empty")
+	ErrRoot     = errors.New("operation not allowed on the root directory")
 )
 
 func parentDir(ix *Index, p string) error {
@@ -31,7 +31,7 @@ func parentDir(ix *Index, p string) error {
 	return nil
 }
 
-// WriteBlocks dzieli dane na bloki, każdy z nową maską, i zwraca ich identyfikatory.
+// WriteBlocks splits data into blocks, each with a new mask, and returns their IDs.
 func (v *Vault) WriteBlocks(data []byte) ([]string, error) {
 	var ids []string
 	for off := 0; off < len(data); off += BlockSize {
@@ -45,7 +45,7 @@ func (v *Vault) WriteBlocks(data []byte) ([]string, error) {
 	return ids, nil
 }
 
-// SetFile zatwierdza nową zawartość pliku (lista bloków i rozmiar).
+// SetFile commits new file content (block list and size).
 func (v *Vault) SetFile(p string, blocks []string, size int64) error {
 	p = Clean(p)
 	if p == "/" {
@@ -70,8 +70,8 @@ func (v *Vault) SetFile(p string, blocks []string, size int64) error {
 	})
 }
 
-// SetFileIno zatwierdza nową zawartość pliku wskazanego numerem (ścieżka
-// mogła się zmienić od otwarcia). mtime nil oznacza „teraz”.
+// SetFileIno commits new content of the file given by number (the path
+// may have changed since opening). mtime nil means "now".
 func (v *Vault) SetFileIno(ino uint64, blocks []string, size int64, mtime *time.Time) error {
 	return v.Commit(func(ix *Index) error {
 		p, ok := ix.pathOf(ino)
@@ -91,7 +91,7 @@ func (v *Vault) SetFileIno(ino uint64, blocks []string, size int64, mtime *time.
 	})
 }
 
-// SetModTime ustawia czas modyfikacji pliku albo katalogu.
+// SetModTime sets the modification time of a file or directory.
 func (v *Vault) SetModTime(ino uint64, mtime time.Time) error {
 	return v.Commit(func(ix *Index) error {
 		p, ok := ix.pathOf(ino)
@@ -103,7 +103,7 @@ func (v *Vault) SetModTime(ino uint64, mtime time.Time) error {
 	})
 }
 
-// Create tworzy pusty plik. exclusive=true: błąd, gdy istnieje. Zwraca numer pliku.
+// Create creates an empty file. exclusive=true: error if it exists. Returns the file number.
 func (v *Vault) Create(p string, exclusive bool) (uint64, error) {
 	p = Clean(p)
 	var ino uint64
@@ -132,10 +132,10 @@ func (v *Vault) Create(p string, exclusive bool) (uint64, error) {
 	return ino, err
 }
 
-// errNoChange przerywa commit bez błędu dla wywołującego.
-var errNoChange = errors.New("bez zmian")
+// errNoChange aborts the commit without an error for the caller.
+var errNoChange = errors.New("no changes")
 
-// Remove usuwa plik albo pusty katalog (semantyka unlink/rmdir).
+// Remove deletes a file or an empty directory (unlink/rmdir semantics).
 func (v *Vault) Remove(p string, dir bool) (uint64, error) {
 	p = Clean(p)
 	if p == "/" {
@@ -168,7 +168,7 @@ func (v *Vault) Remove(p string, dir bool) (uint64, error) {
 	return ino, err
 }
 
-// PutFile zapisuje cały plik.
+// PutFile writes a whole file.
 func (v *Vault) PutFile(p string, data []byte) error {
 	blocks, err := v.WriteBlocks(data)
 	if err != nil {
@@ -177,7 +177,7 @@ func (v *Vault) PutFile(p string, data []byte) error {
 	return v.SetFile(p, blocks, int64(len(data)))
 }
 
-// GetFile odczytuje cały plik. Wywołujący czyści wynik split.Wipe.
+// GetFile reads a whole file. The caller wipes the result with split.Wipe.
 func (v *Vault) GetFile(p string) ([]byte, error) {
 	e, ok := v.Stat(p)
 	if !ok {
@@ -205,7 +205,7 @@ func under(p, dir string) bool {
 	return p == dir || strings.HasPrefix(p, dir+"/")
 }
 
-// RemoveAll usuwa plik albo katalog z zawartością.
+// RemoveAll deletes a file or a directory with its content.
 func (v *Vault) RemoveAll(p string) error {
 	p = Clean(p)
 	if p == "/" {
@@ -224,14 +224,14 @@ func (v *Vault) RemoveAll(p string) error {
 	})
 }
 
-// Rename przenosi plik albo katalog. Bloki nie są przepisywane; zmienia się
-// tylko indeks. Istniejący plik docelowy jest zastępowany, katalog nie.
+// Rename moves a file or directory. Blocks are not rewritten; only the
+// index changes. An existing target file is replaced, a directory is not.
 func (v *Vault) Rename(from, to string) error {
 	_, err := v.RenameReplacing(from, to)
 	return err
 }
 
-// RenameReplacing działa jak Rename i zwraca numer zastąpionego pliku (0, gdy nie było).
+// RenameReplacing works like Rename and returns the number of the replaced file (0 if none).
 func (v *Vault) RenameReplacing(from, to string) (uint64, error) {
 	from, to = Clean(from), Clean(to)
 	if from == "/" || to == "/" {
@@ -247,7 +247,7 @@ func (v *Vault) RenameReplacing(from, to string) (uint64, error) {
 			return ErrNotExist
 		}
 		if src.Dir && under(to, from) {
-			return errors.New("nie można przenieść katalogu do jego wnętrza")
+			return errors.New("cannot move a directory into itself")
 		}
 		if err := parentDir(ix, to); err != nil {
 			return err

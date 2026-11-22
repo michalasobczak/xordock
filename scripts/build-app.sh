@@ -1,7 +1,7 @@
 #!/bin/zsh
-# Składa build/xordock.app: aplikacja SwiftUI (macos/) + CLI xordock w
-# Contents/Resources. Podpis ad hoc, bez konta Apple (S007 G3).
-# Wymaga: Go, Xcode (Swift 6), macFUSE 5.5 (libfuse3 w /usr/local).
+# Assembles build/xordock.app: the SwiftUI app (macos/) + the xordock CLI in
+# Contents/Resources. Ad hoc signature, no Apple account needed (S007 G3).
+# Requires: Go, Xcode (Swift 6), macFUSE 5.5 (libfuse3 in /usr/local) to mount.
 set -euo pipefail
 cd "${0:A:h}/.."
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
@@ -36,4 +36,4 @@ PLIST
 codesign --force --sign - "$app/Contents/Resources/xordock"
 codesign --force --sign - "$app"
 codesign --verify --strict "$app"
-echo "Gotowe: $app"
+echo "Built: $app"

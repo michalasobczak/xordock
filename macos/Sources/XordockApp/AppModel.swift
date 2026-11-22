@@ -4,8 +4,8 @@ import Observation
 import XordockCore
 import XordockUI
 
-/// Stan aplikacji. Jedynym źródłem prawdy jest CLI (`vaults`, `volumes`);
-/// model niczego nie czyta z udziałów (S007 G5).
+/// App state. The only source of truth is the CLI (`vaults`, `volumes`);
+/// the model reads nothing from the shares (S007 G5).
 let orphanTag = "icloud:"
 
 @MainActor
@@ -14,18 +14,18 @@ final class AppModel {
     var state = AppState()
     var volumes: [VolumeInfo] = []
     var selection: String?
-    var busy: String?          // opis trwającej akcji
-    var message: String?       // ostatni wynik akcji: jedno zdanie
-    var output: String?        // pełne wyjście CLI ostatniej akcji (pod „Szczegóły”)
-    var errorText: String?     // ostatni błąd
+    var busy: String?          // description of the running action
+    var message: String?       // result of the last action: one sentence
+    var output: String?        // full CLI output of the last action (under "Details")
+    var errorText: String?     // last error
     var cliMissing = false
 
     let cli: CLI?
     let tour = TourController()
-    /// Okno ma pokazać pytanie o samouczek (start) albo od razu wprowadzenie.
+    /// The window should show the tutorial prompt (launch) or go straight to the introduction.
     var pendingStartPrompt = false
     var pendingIntro = false
-    /// Wymagania (S011): wynik ostatniego sprawdzenia i arkusz do pokazania.
+    /// Requirements (S011): result of the last check and the sheet to show.
     var requirements: DoctorResult?
     var checkingRequirements = false
     var pendingRequirements = false
@@ -61,16 +61,16 @@ final class AppModel {
 
     static let askKey = "askTutorialAtLaunch"
 
-    /// Start aplikacji: wymagania, potem stan sejfów. Zwraca true, gdy okno
-    /// powinno się otworzyć (braki albo pytanie o samouczek).
+    /// App launch: requirements, then the vaults' state. Returns true when the window
+    /// should open (missing requirements or the tutorial prompt).
     func startup() async -> Bool {
         await checkRequirements(forceProbe: false)
         await refresh()
         return pendingRequirements || pendingStartPrompt
     }
 
-    /// `doctor`; próba montowania, gdy rozszerzenie niepotwierdzone dla tej
-    /// wersji macFUSE albo na żądanie (S011 W-04).
+    /// `doctor`; a test mount when the extension is unconfirmed for this
+    /// macFUSE version or on request (S011 W-04).
     func checkRequirements(forceProbe: Bool) async {
         guard let cli, !checkingRequirements else { return }
         checkingRequirements = true
@@ -89,7 +89,7 @@ final class AppModel {
             requirements = r.applyingConfirmation(UserDefaults.standard.string(forKey: Self.confirmedKey))
             if requirements?.hasErrors == true { pendingRequirements = true }
         } catch {
-            requirements = DoctorResult(checks: [RequirementCheck(id: "cli", title: "Silnik xordock", level: "error",
+            requirements = DoctorResult(checks: [RequirementCheck(id: "cli", title: "xordock engine", level: "error",
                                                                   detail: error.localizedDescription, fixLabel: nil, fixURL: nil)])
             pendingRequirements = true
         }
@@ -108,13 +108,13 @@ final class AppModel {
             }
             tour.update()
         } catch {
-            errorText = "Nie udało się odczytać stanu: \(error.localizedDescription)"
+            errorText = "Couldn't read the state: \(error.localizedDescription)"
         }
     }
 
-    /// Wykonuje akcję CLI z blokadą przycisków i komunikatem wyniku.
+    /// Runs a CLI action with buttons locked and a result message.
     @discardableResult
-    func perform(_ title: String, _ steps: [[String]], success: String = "Gotowe.") async -> Bool {
+    func perform(_ title: String, _ steps: [[String]], success: String = "Done.") async -> Bool {
         guard let cli, busy == nil else { return false }
         busy = title
         errorText = nil
@@ -139,11 +139,11 @@ final class AppModel {
         return true
     }
 
-    // MARK: akcje
+    // MARK: actions
 
     func mount(_ v: VaultInfo) async {
         guard let cli, busy == nil else { return }
-        busy = "Montowanie…"
+        busy = "Mounting…"
         errorText = nil
         message = nil
         let log = CLI.logURL(name: v.name)
@@ -154,7 +154,7 @@ final class AppModel {
                     guard let self else { return }
                     if status != 0 {
                         let tail = CLI.logTail(log)
-                        self.errorText = "Sejf „\(name)” odmontowany z błędem: \(tail.isEmpty ? "kod \(status)" : tail)"
+                        self.errorText = "Vault \"\(name)\" unmounted with an error: \(tail.isEmpty ? "code \(status)" : tail)"
                     }
                     await self.refresh()
                 }
@@ -164,13 +164,13 @@ final class AppModel {
             busy = nil
             return
         }
-        // Czekamy, aż wolumin się pojawi (do 15 s).
+        // Wait for the volume to appear (up to 15 s).
         for _ in 0..<30 {
             try? await Task.sleep(for: .milliseconds(500))
             await refresh()
             if state.vaults.first(where: { $0.name == name })?.mounted == true {
-                message = "Sejf „\(name)” otwarty w Finderze."
-                // Udane montowanie potwierdza włączone rozszerzenie (S011).
+                message = "Vault \"\(name)\" opened in Finder."
+                // A successful mount confirms the extension is enabled (S011).
                 if let v = requirements?.macfuseVersion {
                     UserDefaults.standard.set(v, forKey: Self.confirmedKey)
                 }
@@ -181,46 +181,46 @@ final class AppModel {
             if errorText != nil { break }
         }
         busy = nil
-        if errorText == nil { errorText = "Montowanie nie powiodło się. Log: \(log.path)" }
+        if errorText == nil { errorText = "Mounting failed. Log: \(log.path)" }
     }
 
     func unmount(_ v: VaultInfo) async -> Bool {
-        let ok = await perform("Odmontowywanie…", [Commands.unmount(name: v.name)], success: "Sejf „\(v.name)” odmontowany. Kartę można wyjąć.")
+        let ok = await perform("Unmounting…", [Commands.unmount(name: v.name)], success: "Vault \"\(v.name)\" unmounted. You can remove the card.")
         guard ok else { return false }
         for _ in 0..<20 {
             if state.vaults.first(where: { $0.name == v.name })?.mounted != true { return true }
             try? await Task.sleep(for: .milliseconds(500))
             await refresh()
         }
-        errorText = "Wolumin nadal zamontowany. Zamknij pliki otwarte z sejfu i spróbuj ponownie."
+        errorText = "The volume is still mounted. Close files opened from the vault and try again."
         return false
     }
 
     func create(name: String, card: VolumeInfo) async -> Bool {
-        let ok = await perform("Zakładanie sejfu…", [Commands.initVault(name: name, card: card.path)], success: "Sejf „\(name)” założony.")
+        let ok = await perform("Creating vault…", [Commands.initVault(name: name, card: card.path)], success: "Vault \"\(name)\" created.")
         if ok { selection = name }
         return ok
     }
 
-    /// Backup teraz: (odmontuj) → migawka → backup (S004 A-11, S007 U-04).
+    /// Back up now: (unmount) → snapshot → backup (S004 A-11, S007 U-04).
     func backup(_ v: VaultInfo, spare: VolumeInfo) async -> Bool {
         if v.mounted {
             guard await unmount(v) else { return false }
         }
-        return await perform("Migawka i backup…", [Commands.snapshot(name: v.name), Commands.backup(name: v.name, spare: spare.path)],
-                             success: "Backup gotowy: kopia B na „\(spare.name)”\(state.icloud ? ", kopia A w iCloud" : "").")
+        return await perform("Snapshot and backup…", [Commands.snapshot(name: v.name), Commands.backup(name: v.name, spare: spare.path)],
+                             success: "Backup done: copy of B on \"\(spare.name)\"\(state.icloud ? ", copy of A in iCloud" : "").")
     }
 
     func fsck(_ v: VaultInfo) async {
-        await perform("Sprawdzanie spójności…", [Commands.fsck(name: v.name)], success: "Sejf spójny.")
+        await perform("Checking consistency…", [Commands.fsck(name: v.name)], success: "Vault is consistent.")
     }
 
     func points(name: String, spare: VolumeInfo, fromICloud: Bool) async throws -> PointsResult {
-        guard let cli else { throw CLIError(message: "brak CLI", status: -1) }
+        guard let cli else { throw CLIError(message: "CLI missing", status: -1) }
         return try await cli.query(PointsResult.self, Commands.points(name: name, spare: spare.path, fromICloud: fromICloud))
     }
 
-    /// Jednorazowe ostrzeżenie przed pierwszą kopią udziału A do iCloud (S008).
+    /// One-time warning before the first copy of share A to iCloud (S008).
     var adpAccepted: Bool {
         get { UserDefaults.standard.bool(forKey: "adpWarningAccepted") }
         set { UserDefaults.standard.set(newValue, forKey: "adpWarningAccepted") }

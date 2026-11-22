@@ -1,5 +1,5 @@
-// Package fusemount montuje sejf przez macFUSE (libfuse3, backend FSKit,
-// S004 ADR-003). Wymaga zainstalowanego macFUSE 5.5+.
+// Package fusemount mounts a vault through macFUSE (libfuse3, FSKit backend,
+// S004 ADR-003). Requires macFUSE 5.5+ to be installed.
 package fusemount
 
 /*
@@ -19,7 +19,7 @@ import (
 	"xordock/internal/vault"
 )
 
-// cur to zamontowany system plików (jeden na proces).
+// cur is the mounted file system (one per process).
 var cur *fusefs.FS
 
 func neg(e syscall.Errno) C.int { return -C.int(e) }
@@ -30,7 +30,7 @@ func gostr(p *C.char) string { return C.GoString(p) }
 func xdDestroy() {
 	if cur != nil && !cur.IsProbe() {
 		if err := cur.SyncAll(); err != nil {
-			vault.Logf("xordock: zatwierdzenie przy odmontowaniu: %v", err)
+			vault.Logf("xordock: commit on unmount: %v", err)
 		}
 	}
 }
@@ -163,12 +163,12 @@ func xdStatfs(total, avail *C.uint64_t) {
 	if cur == nil || syscall.Statfs(cur.BRoot(), &st) != nil {
 		return
 	}
-	// Pojemność wyznacza karta: każdy bajt danych to udział na niej.
+	// The card sets the capacity: every byte of data is a share on it.
 	*total = C.uint64_t(st.Blocks * uint64(st.Bsize))
 	*avail = C.uint64_t(st.Bavail * uint64(st.Bsize))
 }
 
-// run montuje i obsługuje żądania do odmontowania (blokuje).
+// run mounts and serves requests until unmounted (blocks).
 func run(fs *fusefs.FS, mountpoint string, opts string) error {
 	cur = fs
 	argv := []*C.char{C.CString("xordock"), C.CString("-o"), C.CString(opts)}
@@ -195,7 +195,7 @@ func run(fs *fusefs.FS, mountpoint string, opts string) error {
 
 func exitLoop() { C.xd_exit() }
 
-// Available: biblioteka libfuse3 z macFUSE daje się załadować (S011 W-02).
-// CLI ładuje ją dopiero przy montowaniu (dlopen), więc bez macFUSE działa
-// wszystko poza montowaniem.
+// Available: the libfuse3 library from macFUSE can be loaded (S011 W-02).
+// The CLI loads it only when mounting (dlopen), so without macFUSE
+// everything except mounting works.
 func Available() bool { return C.xd_available() != 0 }

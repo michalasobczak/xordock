@@ -10,15 +10,15 @@ public struct CLIError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Uruchamia dołączony `xordock` przez Process z tablicą argumentów (bez powłoki).
+/// Runs the bundled `xordock` via Process with an argument array (no shell).
 public struct CLI: Sendable {
     public let binary: URL
 
     public init(binary: URL) { self.binary = binary }
 
-    /// W pakiecie .app wyłącznie Contents/Resources/xordock (podpisany razem
-    /// z aplikacją; zmienna środowiskowa ani katalog roboczy nie podmienią
-    /// silnika). Poza pakietem (`swift run`, testy): XORDOCK_CLI albo bin/xordock.
+    /// Inside an .app bundle only Contents/Resources/xordock (signed together
+    /// with the app; neither an environment variable nor the working directory can
+    /// swap the engine). Outside a bundle (`swift run`, tests): XORDOCK_CLI or bin/xordock.
     public static func locate(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
                               cwd: String = FileManager.default.currentDirectoryPath) -> CLI? {
         var candidates: [URL] = []
@@ -33,7 +33,7 @@ public struct CLI: Sendable {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }.map(CLI.init)
     }
 
-    /// Uruchamia polecenie i czeka na wynik. Błąd: kod ≠ 0, komunikat ze stderr.
+    /// Runs a command and waits for the result. Error: exit code ≠ 0, message from stderr.
     public func run(_ args: [String]) async throws -> String {
         let bin = binary
         return try await Task.detached {
@@ -53,7 +53,7 @@ public struct CLI: Sendable {
             let stderr = CLI.cleanStderr(String(decoding: (ed ?? nil) ?? Data(), as: UTF8.self))
             if p.terminationStatus != 0 {
                 let msg = stderr.isEmpty ? stdout : stderr
-                throw CLIError(message: msg.isEmpty ? "xordock zakończył się kodem \(p.terminationStatus)" : msg, status: p.terminationStatus)
+                throw CLIError(message: msg.isEmpty ? "xordock exited with code \(p.terminationStatus)" : msg, status: p.terminationStatus)
             }
             return stdout
         }.value
@@ -64,7 +64,7 @@ public struct CLI: Sendable {
         return try jsonDecoder.decode(T.self, from: Data(out.utf8))
     }
 
-    /// Usuwa szum libfuse (R4-04) i prefiks „xordock:” z komunikatu błędu.
+    /// Removes libfuse noise (R4-04) and the "xordock:" prefix from the error message.
     public static func cleanStderr(_ s: String) -> String {
         s.split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init)
@@ -74,8 +74,8 @@ public struct CLI: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Startuje proces montowania odłączony od aplikacji: wyjście do pliku logu,
-    /// nie do potoku, więc zamknięcie aplikacji nie zrywa montowania (S007 §5).
+    /// Starts the mount process detached from the app: output goes to a log file,
+    /// not a pipe, so quitting the app doesn't break the mount (S007 §5).
     public func spawnMount(name: String, log: URL, onExit: @escaping @Sendable (Int32) -> Void) throws {
         try FileManager.default.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
@@ -101,7 +101,7 @@ public struct CLI: Sendable {
             .appendingPathComponent("Library/Logs/xordock/\(name).log")
     }
 
-    /// Ostatnie linie logu montowania (komunikat błędu po nieudanym montowaniu).
+    /// Last lines of the mount log (error message after a failed mount).
     public static func logTail(_ url: URL, lines: Int = 4) -> String {
         guard let s = try? String(contentsOf: url, encoding: .utf8) else { return "" }
         let ls = s.split(separator: "\n").map(String.init).filter { !$0.hasPrefix("fuse: forking") && !$0.hasPrefix("---") }

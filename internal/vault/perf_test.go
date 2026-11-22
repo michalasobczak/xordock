@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// TestPerf mierzy przepustowość na prawdziwych nośnikach (S001 §8, efekt
-// mierzalny). Uruchamiany ręcznie:
+// TestPerf measures throughput on real media (S001 §8, measurable
+// effect). Run manually:
 //
-//	XORDOCK_PERF_A=/ścieżka/na/SSD XORDOCK_PERF_B=/Volumes/karta/dir go test -run TestPerf -v ./internal/vault
+//	XORDOCK_PERF_A=/path/on/SSD XORDOCK_PERF_B=/Volumes/card/dir go test -run TestPerf -v ./internal/vault
 func TestPerf(t *testing.T) {
 	aDir, bDir := os.Getenv("XORDOCK_PERF_A"), os.Getenv("XORDOCK_PERF_B")
 	if aDir == "" || bDir == "" {
-		t.Skip("ustaw XORDOCK_PERF_A i XORDOCK_PERF_B")
+		t.Skip("set XORDOCK_PERF_A and XORDOCK_PERF_B")
 	}
 	a, b := filepath.Join(aDir, "perf-A"), filepath.Join(bDir, "perf-B")
 	os.RemoveAll(a)
@@ -40,11 +40,11 @@ func TestPerf(t *testing.T) {
 	r := time.Since(t0)
 	t0 = time.Now()
 	for i := 0; i < 50; i++ {
-		if err := v.PutFile("/small", []byte("mały plik")); err != nil {
+		if err := v.PutFile("/small", []byte("small file")); err != nil {
 			t.Fatal(err)
 		}
 	}
 	s := time.Since(t0) / 50
-	t.Logf("zapis 20 MiB: %v (%.1f MiB/s), odczyt: %v (%.1f MiB/s), mały plik: %v",
+	t.Logf("write 20 MiB: %v (%.1f MiB/s), read: %v (%.1f MiB/s), small file: %v",
 		w, 20/w.Seconds(), r, 20/r.Seconds(), s)
 }

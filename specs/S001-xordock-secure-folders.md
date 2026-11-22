@@ -1,45 +1,45 @@
 # S001 — xordock Secure Folders for macOS
 
-- **Status:** zastąpiona przez S004 (2026-11-22). Silnik (`internal/split`, `internal/vault`) przeszedł do S004. Integrację WebDAV usunięto 2026-11-22; §9.8–9.9 opisują stan z commitu `98e5fdc`.
-- **Data:** 2026-11-22
-- **Projekt:** xordock
-- **Platforma:** macOS, Apple Silicon
-- **Typ:** nowa aplikacja / wirtualny system plików
-- **Zakres:** pierwszy używalny prototyp katalogu opartego na dwóch udziałach danych
-- **Powiązane:** S002 (integracja bez cache na dysku)
+- **Status:** superseded by S004 (2026-11-22). The engine (`internal/split`, `internal/vault`) moved to S004. The WebDAV integration was removed 2026-11-22; §9.8–9.9 describe the state as of commit `98e5fdc`.
+- **Date:** 2026-11-22
+- **Project:** xordock
+- **Platform:** macOS, Apple Silicon
+- **Type:** new application / virtual file system
+- **Scope:** first usable prototype of a folder based on two data shares
+- **Related:** S002 (integration without on-disk cache)
 
 ## 1. TL;DR
 
-Chcę stworzyć aplikację na macOS, która udostępnia użytkownikowi zwykły katalog w Finderze, ale przechowuje jego zawartość jako dwa niezależne udziały: jeden na wewnętrznym SSD Maca, drugi na wyjmowanej karcie SD.
+I want to build a macOS application that gives the user an ordinary folder in Finder, but stores its contents as two independent shares: one on the Mac's internal SSD, the other on a removable SD card.
 
-Bez karty SD odtworzenie zawartości katalogu nie może być możliwe z samego udziału na Macu. Prototyp ma wykazać poprawność działania i obsługi awarii, a uzyskanie gwarancji poufności niezależnej od P = NP wymaga osobnej, udokumentowanej walidacji źródła losowości i całego modelu bezpieczeństwa.
+Without the SD card, restoring the folder contents must not be possible from the share on the Mac alone. The prototype is to demonstrate correct operation and failure handling, while obtaining a confidentiality guarantee independent of P = NP requires a separate, documented validation of the randomness source and of the whole security model.
 
 ## 2. Abstract
 
-Współczesne rozwiązania ochrony plików na macOS wykorzystują przede wszystkim szyfrowanie oparte na krótkich kluczach kryptograficznych. Fizyczny token może kontrolować dostęp do takiego klucza, ale nie gwarantuje matematycznej poufności danych w przypadku znalezienia praktycznej metody złamania algorytmu szyfrującego.
+Current file protection solutions on macOS rely primarily on encryption based on short cryptographic keys. A physical token can control access to such a key, but it does not guarantee mathematical confidentiality of the data if a practical method of breaking the encryption algorithm is found.
 
-xordock ma realizować inny model: zawartość każdego chronionego pliku zostaje rozdzielona na dwa udziały za pomocą operacji XOR i świeżej maski losowej. Pierwszy udział przechowywany jest na Macu, a drugi na karcie SD. Oba są niezbędne do odtworzenia danych.
+xordock is to implement a different model: the contents of each protected file are split into two shares using the XOR operation and a fresh random mask. The first share is stored on the Mac and the second on the SD card. Both are required to restore the data.
 
-Użytkownik nie powinien wykonywać ręcznie operacji dzielenia ani składania plików. Powinien korzystać ze zwykłego katalogu widocznego w Finderze.
+The user should not split or join files manually. They should use an ordinary folder visible in Finder.
 
-Projekt obejmuje wybrane katalogi, a nie cały dysk systemowy. Nie wymaga podłączania karty SD do uruchamiania macOS.
+The project covers selected folders, not the whole system disk. It does not require the SD card to be connected to boot macOS.
 
-Rozważono istniejące projekty SafeFS i Lecithine, jednak nie przyjęto założenia, że ich implementacje spełniają wymagania bezpieczeństwa produkcyjnego.
+The existing projects SafeFS and Lecithine were considered, but it was not assumed that their implementations meet production security requirements.
 
-Największymi ryzykami są jakość losowości, spójność zapisów na dwóch nośnikach, pozostawianie jawnych kopii plików przez aplikacje oraz niezawodność kart SD.
+The biggest risks are the quality of randomness, consistency of writes across two media, applications leaving plaintext copies of files, and the reliability of SD cards.
 
 ## 3. Objective
 
 ### Goals
 
-**G-01 — Wirtualny katalog.** System ma udostępniać chroniony katalog w macOS jako zwykłą lokalizację dostępną z Findera i standardowych aplikacji.
+**G-01 — Virtual folder.** The system is to present the protected folder in macOS as an ordinary location accessible from Finder and standard applications.
 
-**G-02 — Dwa fizyczne udziały.** Każdy blok chronionych danych ma być reprezentowany przez dwa udziały:
+**G-02 — Two physical shares.** Each block of protected data is to be represented by two shares:
 
-- A — na lokalnym dysku Maca;
-- B — na wyjmowanej karcie SD.
+- A — on the Mac's local disk;
+- B — on the removable SD card.
 
-Obowiązuje zależność:
+The following relation holds:
 
 ```
 A = M XOR R
@@ -47,307 +47,307 @@ B = R
 M = A XOR B
 ```
 
-gdzie `M` to oryginalne dane, a `R` to maska losowa.
+where `M` is the original data and `R` is the random mask.
 
-**G-03 — Wymagana karta SD.** Bez poprawnej karty SD chroniony katalog nie może zostać zamontowany ani odtworzony z samego udziału A.
+**G-03 — SD card required.** Without the correct SD card the protected folder cannot be mounted or restored from share A alone.
 
-**G-04 — Normalna praca użytkownika.** Użytkownik ma móc tworzyć, odczytywać, modyfikować, przenosić i usuwać pliki bez ręcznego zarządzania udziałami.
+**G-04 — Normal user work.** The user is to be able to create, read, modify, move and delete files without managing shares manually.
 
-**G-05 — Odporność na awarie.** Przerwanie zapisu nie może powodować cichego odtworzenia nieprawidłowych danych ani niespójnego katalogu bez komunikatu o błędzie.
+**G-05 — Failure resilience.** An interrupted write must not cause silent restoration of incorrect data or an inconsistent folder without an error message.
 
-**G-06 — Jawnie określone bezpieczeństwo.** Produkt musi odróżniać:
+**G-06 — Explicitly defined security.** The product must distinguish:
 
-- prototyp korzystający z kryptograficznie bezpiecznego generatora pseudolosowego (CSPRNG);
-- wariant docelowy, wymagający pełnowymiarowej, niezależnej losowości do uzyskania doskonałej tajności udziałów.
+- the prototype using a cryptographically secure pseudorandom generator (CSPRNG);
+- the target variant, requiring full-size, independent randomness to achieve perfect secrecy of the shares.
 
-Nie wolno reklamować wariantu CSPRNG jako matematycznie odpornego na P = NP.
+The CSPRNG variant must not be advertised as mathematically resistant to P = NP.
 
 ### Out of scope
 
-Pierwsza specyfikacja nie obejmuje:
+The first spec does not cover:
 
-- szyfrowania całego dysku systemowego;
-- ochrony przed malware na odblokowanym Macu;
-- ochrony przed atakującym posiadającym jednocześnie oba udziały;
-- synchronizacji przez iCloud;
-- współdzielenia katalogów przez Internet;
-- dedykowanych operatorów xordock;
-- trzech udziałów i schematów 2-z-3;
-- gotowego produktu z certyfikowaną odpornością na P = NP.
+- encryption of the whole system disk;
+- protection against malware on an unlocked Mac;
+- protection against an attacker holding both shares at the same time;
+- synchronization via iCloud;
+- sharing folders over the Internet;
+- dedicated xordock operators;
+- three shares and 2-of-3 schemes;
+- a finished product with certified resistance to P = NP.
 
 ### Success criteria
 
-- **SC-01.** Użytkownik tworzy chroniony katalog, montuje go, zapisuje i odczytuje pliki, a ich zawartość po ponownym montowaniu jest identyczna.
-- **SC-02.** Usunięcie karty SD uniemożliwia nowe odczyty udziałów wymagających jej obecności.
-- **SC-03.** Po ponownym uruchomieniu Maca katalog pozostaje niedostępny do czasu podłączenia właściwej karty i przeprowadzenia autoryzacji.
-- **SC-04.** Każda modyfikacja bloku otrzymuje nową maskę, bez ponownego wykorzystania poprzedniej.
-- **SC-05.** Awaria podczas zapisu kończy się odzyskaniem ostatniej zatwierdzonej wersji albo jednoznacznym błędem, nigdy cichą korupcją.
-- **SC-06.** Zakończone zostają testy funkcjonalne, testy awarii i przegląd bezpieczeństwa dla zakresu prototypu.
+- **SC-01.** The user creates a protected folder, mounts it, writes and reads files, and their contents after remounting are identical.
+- **SC-02.** Removing the SD card prevents new reads of shares that require its presence.
+- **SC-03.** After restarting the Mac the folder remains inaccessible until the correct card is connected and authorization is performed.
+- **SC-04.** Each block modification gets a new mask, without reusing the previous one.
+- **SC-05.** A failure during a write ends with recovery of the last committed version or an unambiguous error, never silent corruption.
+- **SC-06.** Functional tests, failure tests and a security review for the prototype scope are completed.
 
 ## 4. Artefact Inventory
 
-| Artefakt | Stan | Odpowiedzialność |
+| Artefact | State | Responsibility |
 |---|---|---|
-| Repozytorium xordock | istnieje | Kod i historia zmian |
-| `README.md` | istnieje | Aktualny stan projektu |
-| `specs/S001-xordock-secure-folders.md` | istnieje | Niniejsza specyfikacja |
-| `CHANGELOG.md` | istnieje | Faktycznie dostarczone funkcje |
-| `MANIFEST.md` | istnieje (do uzupełnienia o decyzje S001) | Zasady implementacji i bezpieczeństwa |
-| `docs/threat-model.md` | do utworzenia | Model przeciwnika i granice ochrony |
-| Aplikacja macOS | do utworzenia | Montowanie i obsługa katalogu |
-| Warstwa wirtualnego systemu plików | do utworzenia | Operacje plikowe i rekonstrukcja |
-| Silnik podziału danych | do utworzenia | Tworzenie i składanie udziałów |
-| Warstwa losowości | do utworzenia | Dostarczanie masek i walidacja źródła |
-| Magazyn udziału A | do utworzenia | Dane na wewnętrznym SSD |
-| Magazyn udziału B | do utworzenia | Dane na karcie SD |
-| Mechanizm spójności transakcji | do utworzenia | Bezpieczne zatwierdzanie zmian |
-| Narzędzie diagnostyczne i odzyskiwania | do utworzenia | Kontrola spójności bez ujawniania treści |
-| Testy automatyczne | do utworzenia | Dowody działania i regresji |
-| Dokumentacja użytkownika | do utworzenia | Bezpieczne korzystanie z karty |
-| Ocena FSKit / macFUSE | [DO USTALENIA] | Wybór wspieranej integracji z macOS |
-| Specyfikacja źródła rzeczywistej losowości | [DO USTALENIA] | Osobny warunek wariantu informacyjno-teoretycznego |
+| xordock repository | exists | Code and change history |
+| `README.md` | exists | Current project state |
+| `specs/S001-xordock-secure-folders.md` | exists | This spec |
+| `CHANGELOG.md` | exists | Actually delivered features |
+| `MANIFEST.md` | exists (to be extended with S001 decisions) | Implementation and security rules |
+| `docs/threat-model.md` | to be created | Adversary model and protection boundaries |
+| macOS application | to be created | Mounting and handling the folder |
+| Virtual file system layer | to be created | File operations and reconstruction |
+| Data splitting engine | to be created | Creating and joining shares |
+| Randomness layer | to be created | Providing masks and validating the source |
+| Share A store | to be created | Data on the internal SSD |
+| Share B store | to be created | Data on the SD card |
+| Transaction consistency mechanism | to be created | Safe committing of changes |
+| Diagnostic and recovery tool | to be created | Consistency checking without revealing content |
+| Automated tests | to be created | Evidence of operation and regressions |
+| User documentation | to be created | Safe use of the card |
+| FSKit / macFUSE evaluation | [TO BE DECIDED] | Choice of supported macOS integration |
+| Spec of the true randomness source | [TO BE DECIDED] | Separate condition for the information-theoretic variant |
 
-Stan repozytorium na 2026-11-22: tylko artefakty CDD, bez kodu.
+Repository state as of 2026-11-22: CDD artefacts only, no code.
 
 ## 5. Functional Domain Changes
 
-### 5.1. Stan docelowy
+### 5.1. Target state
 
-Użytkownik widzi jeden chroniony katalog. Fizycznie pliki mają dwa udziały przechowywane na różnych nośnikach. Aplikacje otrzymują jawne dane tylko podczas autoryzowanego korzystania z zamontowanego katalogu.
+The user sees one protected folder. Physically, files have two shares stored on different media. Applications receive plaintext data only during authorized use of the mounted folder.
 
-### 5.2. Tworzenie katalogu
+### 5.2. Creating the folder
 
-- **FR-01.** Użytkownik wskazuje lokalizację udziału A na Macu.
-- **FR-02.** Użytkownik wskazuje kartę SD przeznaczoną na udział B.
-- **FR-03.** System sprawdza tożsamość nośnika, możliwość zapisu, ilość miejsca i zgodność z wymaganym formatem.
-- **FR-04.** Aplikacja inicjalizuje nowy chroniony katalog i zapisuje powiązanie jego udziałów.
-- **FR-05.** Użytkownik ustanawia dodatkową autoryzację dostępu, np. hasło, o ile nie osłabia ona mechanizmu podziału sekretu.
-- **FR-06.** Katalog nie może zostać utworzony częściowo bez możliwości jednoznacznego anulowania lub dokończenia inicjalizacji.
+- **FR-01.** The user specifies the location of share A on the Mac.
+- **FR-02.** The user specifies the SD card intended for share B.
+- **FR-03.** The system checks the identity of the medium, writability, available space and compatibility with the required format.
+- **FR-04.** The application initializes a new protected folder and records the binding of its shares.
+- **FR-05.** The user sets up additional access authorization, e.g. a password, provided it does not weaken the secret-splitting mechanism.
+- **FR-06.** The folder must not be created partially without the possibility of unambiguously cancelling or completing the initialization.
 
-### 5.3. Zapisywanie danych
+### 5.3. Writing data
 
-- **FR-07.** Zapis każdego nowego bloku wymaga świeżej maski.
-- **FR-08.** Każda maska może zostać zastosowana do utworzenia udziałów tylko jednej wersji danego bloku.
-- **FR-09.** Udział A i B muszą zostać zapisane w zgodnych wersjach.
-- **FR-10.** Zapis zostaje uznany za trwały dopiero po zakończeniu wymaganych operacji utrwalenia i zatwierdzenia obu udziałów.
-- **FR-11.** Ograniczenie miejsca lub brak dostępu do karty SD musi zatrzymać zapis przed ogłoszeniem powodzenia.
+- **FR-07.** Writing each new block requires a fresh mask.
+- **FR-08.** Each mask may be used to create shares of only one version of a given block.
+- **FR-09.** Shares A and B must be written in matching versions.
+- **FR-10.** A write is considered durable only after the required persistence and commit operations of both shares have completed.
+- **FR-11.** Lack of space or lack of access to the SD card must stop the write before success is announced.
 
-### 5.4. Odczytywanie danych
+### 5.4. Reading data
 
-- **FR-12.** System odczytuje odpowiednie fragmenty z obu udziałów.
-- **FR-13.** Oryginalny blok jest odtwarzany w pamięci operacyjnej operacją XOR.
-- **FR-14.** Niezgodność identyfikatorów, wersji lub struktury udziałów skutkuje błędem, a nie zwróceniem przypadkowych danych.
-- **FR-15.** Program nie może celowo utrwalać jawnych danych w katalogu technicznym ani dzienniku diagnostycznym.
+- **FR-12.** The system reads the corresponding fragments from both shares.
+- **FR-13.** The original block is reconstructed in main memory by the XOR operation.
+- **FR-14.** A mismatch of identifiers, versions or share structure results in an error, not in returning arbitrary data.
+- **FR-15.** The program must not deliberately persist plaintext data in a technical folder or diagnostic log.
 
-### 5.5. Obsługa karty SD
+### 5.5. SD card handling
 
-- **FR-16.** System rozpoznaje właściwy nośnik i właściwy zestaw udziałów, nie polegając wyłącznie na nazwie wolumenu.
-- **FR-17.** Podłączenie innej karty nie może spowodować połączenia udziałów pochodzących z różnych katalogów.
-- **FR-18.** Utrata połączenia z kartą podczas zapisu musi wprowadzać katalog w stan błędu i uniemożliwiać kolejne zatwierdzenia zmian.
-- **FR-19.** Bezpieczne odmontowanie wymaga zakończenia aktywnych operacji i utrwalenia danych.
-- **FR-20.** Po odmontowaniu nowe odczyty i zapisy nie są dostępne. Dane wcześniej odczytane do pamięci aplikacji nie mogą być uznawane za automatycznie usunięte.
+- **FR-16.** The system recognizes the correct medium and the correct set of shares, not relying solely on the volume name.
+- **FR-17.** Connecting a different card must not cause shares from different folders to be combined.
+- **FR-18.** Losing the connection with the card during a write must put the folder into an error state and prevent further commits of changes.
+- **FR-19.** Safe unmounting requires completing active operations and persisting the data.
+- **FR-20.** After unmounting, new reads and writes are not available. Data previously read into application memory must not be considered automatically removed.
 
-### 5.6. Zmiany i historia plików
+### 5.6. File changes and history
 
-- **FR-21.** Nadpisanie pliku nie może wykorzystywać ponownie maski z poprzedniej wersji.
-- **FR-22.** Operacje zmiany rozmiaru, usuwania, przenoszenia i zmiany nazwy muszą zachowywać zgodność udziałów.
-- **FR-23.** System musi jawnie określać zachowanie wobec wersjonowania, kopii zapasowych, dzienników i migawek.
-- **FR-24.** Niedozwolone jest tworzenie ukrytej pełnej kopii jawnego katalogu na którymkolwiek nośniku.
+- **FR-21.** Overwriting a file must not reuse the mask from the previous version.
+- **FR-22.** Resize, delete, move and rename operations must preserve share consistency.
+- **FR-23.** The system must explicitly define its behavior with respect to versioning, backups, logs and snapshots.
+- **FR-24.** Creating a hidden full copy of the plaintext folder on any medium is not allowed.
 
-### 5.7. Model bezpieczeństwa
+### 5.7. Security model
 
-**Przeciwnik objęty docelową gwarancją:**
+**Adversary covered by the target guarantee:**
 
-- zdobywa pełną kopię udziału A;
-- może mieć nieograniczoną moc obliczeniową, w tym algorytmy wynikające z praktycznego P = NP;
-- zna pełny kod i format danych;
-- może analizować wcześniejsze kopie udziału A;
-- nie uzyskuje udziału B ani jawnych kopii danych;
-- nie kontroluje komputera podczas pracy z zamontowanym katalogiem.
+- obtains a full copy of share A;
+- may have unlimited computing power, including algorithms resulting from a practical P = NP;
+- knows the full code and data format;
+- may analyze earlier copies of share A;
+- does not obtain share B or plaintext copies of the data;
+- does not control the computer while the mounted folder is in use.
 
-**Gwarancja matematyczna dotyczy poufności zawartości**, przy założeniu niezależnych, jednolicie losowych masek o odpowiedniej długości i prawidłowej realizacji protokołu.
+**The mathematical guarantee concerns the confidentiality of the content**, assuming independent, uniformly random masks of adequate length and correct implementation of the protocol.
 
-W szczególności pojedynczy udział nie powinien ujawniać treści danych. Nie oznacza to automatycznie ukrywania rozmiarów, czasu aktywności, informacji z systemu operacyjnego ani odporności na modyfikowanie udziałów przez atakującego.
+In particular, a single share should not reveal the content of the data. This does not automatically mean hiding sizes, activity times, information from the operating system, or resistance to modification of shares by an attacker.
 
-**Wariant CSPRNG** nie spełnia warunku bezwarunkowej poufności. Ma być jednoznacznie oznaczony jako praktyczny prototyp, bez deklaracji odporności na P = NP.
+**The CSPRNG variant** does not meet the condition of unconditional confidentiality. It is to be unambiguously labelled as a practical prototype, with no claim of resistance to P = NP.
 
-### 5.8. Bezpieczeństwo danych poza katalogiem
+### 5.8. Security of data outside the folder
 
-- **FR-25.** Aplikacja ma dokumentować ograniczenia związane z plikami tymczasowymi, pamięcią wymiany, podglądami Findera, historią ostatnich dokumentów i zachowaniem aplikacji biurowych.
-- **FR-26.** System nie może obiecywać, że wszystkie programy macOS usuwają swoje jawne kopie po zamknięciu dokumentu.
-- **FR-27.** Zalecane jest niezależne używanie FileVault jako dodatkowej ochrony pozostałych danych komputera.
+- **FR-25.** The application is to document the limitations related to temporary files, swap memory, Finder previews, recent documents history and the behavior of office applications.
+- **FR-26.** The system must not promise that all macOS programs remove their plaintext copies after a document is closed.
+- **FR-27.** Independent use of FileVault is recommended as additional protection of the rest of the computer's data.
 
 ## 6. Critical Path
 
-Celem jest uzyskanie jednego działającego katalogu, którego zawartość można odczytać tylko przy dostępności dwóch zgodnych udziałów.
+The goal is one working folder whose contents can be read only when two matching shares are available.
 
-1. **CP-01 — Model danych.** Zdefiniować format i zasady wersjonowania udziałów. Potwierdzić testami, że świeże maski tworzą udziały poprawnie oraz że nie są ponownie używane.
-2. **CP-02 — Operacje plikowe.** Zaimplementować podstawowe tworzenie, odczytywanie, zapisywanie i usuwanie plików na dwóch lokalizacjach testowych.
-3. **CP-03 — Integracja macOS.** Wybrać i zweryfikować wspierany mechanizm wirtualnego systemu plików. Udostępnić katalog w Finderze.
-4. **CP-04 — Karta SD.** Zastąpić jedną lokalizację testową rzeczywistą kartą SD. Zweryfikować jej podłączanie, identyfikację, odmontowywanie i ponowne montowanie.
-5. **CP-05 — Spójność zapisów.** Zaimplementować odzyskiwanie po niepełnej operacji i sprawdzić zachowanie podczas symulowanych awarii.
-6. **CP-06 — Testy bezpieczeństwa.** Sprawdzić izolację udziałów, brak ponownego użycia masek, zakres jawnych kopii i odporność na nieprawidłowe dane wejściowe.
-7. **CP-07 — Prototyp demonstracyjny.** Użytkownik zapisuje plik do katalogu w Finderze, odmontowuje go, odłącza kartę i nie może ponownie otworzyć katalogu. Po podłączeniu właściwej karty może odczytać plik bez zmian.
+1. **CP-01 — Data model.** Define the format and versioning rules of the shares. Confirm with tests that fresh masks create shares correctly and that they are not reused.
+2. **CP-02 — File operations.** Implement basic creating, reading, writing and deleting of files in two test locations.
+3. **CP-03 — macOS integration.** Choose and verify a supported virtual file system mechanism. Make the folder available in Finder.
+4. **CP-04 — SD card.** Replace one test location with a real SD card. Verify its connecting, identification, unmounting and remounting.
+5. **CP-05 — Write consistency.** Implement recovery after an incomplete operation and check the behavior during simulated failures.
+6. **CP-06 — Security tests.** Check share isolation, no mask reuse, the extent of plaintext copies and resistance to invalid input data.
+7. **CP-07 — Demonstration prototype.** The user writes a file to the folder in Finder, unmounts it, disconnects the card and cannot reopen the folder. After connecting the correct card they can read the file unchanged.
 
-**Warunek ukończenia:** spełnione wszystkie bramki MVP, bez niezamkniętych błędów powodujących utratę danych w przewidzianym modelu testowym.
+**Completion condition:** all MVP gates met, with no unresolved bugs causing data loss in the defined test model.
 
 ## 7. Control Gates
 
-Wszystkie bramki są obowiązkowe dla zadeklarowanego zakresu. Bramka niespełniona blokuje oznaczenie odpowiedniego wydania jako gotowego.
+All gates are mandatory for the declared scope. An unmet gate blocks marking the corresponding release as ready.
 
-| ID | Warunek przejścia | Weryfikacja |
+| ID | Pass condition | Verification |
 |---|---|---|
-| CG-01 | Odczyt po zapisie daje identyczne bajty | Testy jednostkowe i E2E dla plików o różnych rozmiarach |
-| CG-02 | Sama kopia udziału A nie zawiera jawnej treści testowych plików | Inspekcja nośnika i testy scenariuszy |
-| CG-03 | Sama kopia udziału B nie zawiera jawnej treści testowych plików | Inspekcja nośnika i testy scenariuszy |
-| CG-04 | Każda modyfikacja otrzymuje nową maskę | Testy instrumentowane z jednoznacznymi identyfikatorami masek |
-| CG-05 | Brak karty blokuje dostęp do katalogu | Test E2E |
-| CG-06 | Niewłaściwa karta jest odrzucana | Test E2E |
-| CG-07 | Awaria zapisu nie powoduje cichej korupcji | Testy awaryjne z przerwaniem w każdym etapie zatwierdzania |
-| CG-08 | Równoległe operacje nie powodują pomieszania udziałów | Testy współbieżności |
-| CG-09 | Logi nie zawierają treści plików ani masek | Automatyczna analiza logów testowych |
-| CG-10 | CSPRNG nie jest przedstawiany jako gwarancja odporności na P = NP | Weryfikacja dokumentacji i interfejsu |
-| CG-11 | Analiza bezpieczeństwa bieżącej i poprzednich specyfikacji nie wykrywa niezamkniętych regresji krytycznych | Przegląd bezpieczeństwa po każdej rundzie |
+| CG-01 | Reading after writing gives identical bytes | Unit and E2E tests for files of various sizes |
+| CG-02 | A copy of share A alone contains no plaintext content of the test files | Medium inspection and scenario tests |
+| CG-03 | A copy of share B alone contains no plaintext content of the test files | Medium inspection and scenario tests |
+| CG-04 | Each modification gets a new mask | Instrumented tests with unique mask identifiers |
+| CG-05 | Absence of the card blocks access to the folder | E2E test |
+| CG-06 | A wrong card is rejected | E2E test |
+| CG-07 | A write failure does not cause silent corruption | Failure tests with interruption at every commit stage |
+| CG-08 | Parallel operations do not cause shares to be mixed up | Concurrency tests |
+| CG-09 | Logs contain no file contents or masks | Automated analysis of test logs |
+| CG-10 | The CSPRNG is not presented as a guarantee of resistance to P = NP | Verification of documentation and interface |
+| CG-11 | Security analysis of the current and previous specs detects no unresolved critical regressions | Security review after each round |
 
-### Dodatkowe bramki dla przyszłego wariantu P = NP
+### Additional gates for the future P = NP variant
 
-- **IT-01 — Walidacja entropii.** Udokumentowane źródło maski musi dostarczać wystarczającą ilość niezależnej entropii dla całego chronionego bloku. Samo przejście testów statystycznych losowości nie stanowi dowodu.
-- **IT-02 — Dowód poufności.** Niezależna analiza kryptograficzna musi potwierdzić, że jeden udział nie ujawnia treści w zdefiniowanym modelu przeciwnika, także przy uwzględnieniu aktualizacji i historii zapisów.
-- **IT-03 — Weryfikacja granic systemu.** Muszą zostać zbadane kanały ujawnienia treści poza magazynami udziałów, w szczególności pamięć wymiany, cache aplikacji, indeksowanie i kopie zapasowe.
-- **IT-04 — Uczciwe deklaracje.** Dopóki IT-01–IT-03 nie zostaną spełnione, żadna wersja programu nie może być opisywana jako zapewniająca pełną odporność na P = NP.
+- **IT-01 — Entropy validation.** The documented mask source must provide a sufficient amount of independent entropy for the whole protected block. Passing statistical randomness tests alone is not proof.
+- **IT-02 — Proof of confidentiality.** An independent cryptographic analysis must confirm that one share does not reveal content in the defined adversary model, also taking into account updates and write history.
+- **IT-03 — Verification of system boundaries.** Channels of content disclosure outside the share stores must be investigated, in particular swap memory, application caches, indexing and backups.
+- **IT-04 — Honest claims.** Until IT-01–IT-03 are met, no version of the program may be described as providing full resistance to P = NP.
 
 ## 8. Expected Outcome
 
-### Efekt bezpośredni
+### Direct effect
 
-Powstaje aplikacja na macOS umożliwiająca utworzenie i używanie katalogu, którego dane fizycznie wymagają dwóch nośników. System operacyjny nadal działa bez karty SD. Po jej odłączeniu chroniony katalog staje się niedostępny dla nowych operacji.
+A macOS application is created that allows creating and using a folder whose data physically requires two media. The operating system still works without the SD card. After it is disconnected, the protected folder becomes unavailable for new operations.
 
-### Efekt mierzalny
+### Measurable effect
 
-W prototypie muszą zostać zmierzone:
+The following must be measured in the prototype:
 
-- przepustowość odczytu i zapisu;
-- opóźnienia operacji na małych plikach;
-- czas montowania i odmontowywania;
-- narzut pojemnościowy na obu nośnikach;
-- skuteczność wykrywania przerwanych zapisów.
+- read and write throughput;
+- latency of operations on small files;
+- mount and unmount time;
+- capacity overhead on both media;
+- effectiveness of detecting interrupted writes.
 
-Wyniki mają zostać zapisane w dokumentacji testów. Progi wydajności dla wydania produkcyjnego zostaną ustalone na podstawie pomiarów prototypu, a nie zgadywanych wartości.
+The results are to be recorded in the test documentation. Performance thresholds for the production release will be set based on prototype measurements, not guessed values.
 
-**Pomiary prototypu (2026-11-22, MacBook Pro Apple Silicon, macOS 27.0, A: wewnętrzny SSD z FileVault, B: karta SD HFS+ w wbudowanym czytniku):**
+**Prototype measurements (2026-11-22, MacBook Pro Apple Silicon, macOS 27.0, A: internal SSD with FileVault, B: HFS+ SD card in the built-in reader):**
 
-| Pomiar | Wynik | Jak powtórzyć |
+| Measurement | Result | How to repeat |
 |---|---|---|
-| Zapis 20 MiB, warstwa sejfu | 1,9 s (10,4 MiB/s) | `XORDOCK_PERF_A=… XORDOCK_PERF_B=/Volumes/… go test -run TestPerf -v ./internal/vault` |
-| Odczyt 20 MiB, warstwa sejfu | 33 ms (~600 MiB/s) | jw. |
-| Mały plik, warstwa sejfu (1 commit) | ~120 ms | jw. |
-| `cp` 20 MB do zamontowanego katalogu | 1,85 s | E2E, §9.9 |
-| Mały plik przez montowanie (2 commity) | ~215 ms | E2E, §9.9 |
-| Montowanie / odmontowanie | 1,0 s / 0,02 s | E2E, §9.9 |
-| Narzut pojemnościowy | 2 × dane + 57 B na obiekt (blok ≤ 1 MiB) + indeks | format w `internal/vault/format.go` |
-| Wykrywanie przerwanych zapisów | 100% scenariuszy testowych (5 etapów × kolejne wystąpienia) | `TestCrashAtEveryStage` |
+| Write 20 MiB, vault layer | 1.9 s (10.4 MiB/s) | `XORDOCK_PERF_A=… XORDOCK_PERF_B=/Volumes/… go test -run TestPerf -v ./internal/vault` |
+| Read 20 MiB, vault layer | 33 ms (~600 MiB/s) | as above |
+| Small file, vault layer (1 commit) | ~120 ms | as above |
+| `cp` 20 MB into the mounted folder | 1.85 s | E2E, §9.9 |
+| Small file through the mount (2 commits) | ~215 ms | E2E, §9.9 |
+| Mount / unmount | 1.0 s / 0.02 s | E2E, §9.9 |
+| Capacity overhead | 2 × data + 57 B per object (block ≤ 1 MiB) + index | format in `internal/vault/format.go` |
+| Detecting interrupted writes | 100% of test scenarios (5 stages × successive occurrences) | `TestCrashAtEveryStage` |
 
-Pierwsza wersja z blokiem 64 KiB dawała 1,4 MiB/s (4 × fsync na blok). Blok 1 MiB i utrwalanie katalogów raz na commit dały ~7× przyspieszenie bez zmiany gwarancji. Wąskim gardłem jest liczba wywołań fsync na karcie SD; małe pliki są ograniczone czasem commitu (2 × F_FULLFSYNC superbloków).
+The first version with a 64 KiB block gave 1.4 MiB/s (4 × fsync per block). A 1 MiB block and persisting folders once per commit gave a ~7× speedup without changing the guarantees. The bottleneck is the number of fsync calls on the SD card; small files are limited by commit time (2 × F_FULLFSYNC of superblocks).
 
-### Skutki uboczne
+### Side effects
 
-- Utrata jednego udziału może oznaczać nieodwracalną utratę danych.
-- Karty SD mogą być wolniejsze i mniej trwałe niż wewnętrzne SSD.
-- W czasie pracy jawne dane są dostępne aplikacjom w pamięci RAM.
-- Wydajność zależy od wolniejszego nośnika oraz liczby operacji synchronizacji.
-- Zwykła karta SD może zostać skopiowana; nie jest automatycznie bezpiecznym tokenem sprzętowym.
+- Loss of one share may mean irreversible data loss.
+- SD cards may be slower and less durable than internal SSDs.
+- During work, plaintext data is available to applications in RAM.
+- Performance depends on the slower medium and the number of synchronization operations.
+- An ordinary SD card can be copied; it is not automatically a secure hardware token.
 
-### Wycofanie
+### Rollback
 
-Wycofanie programu nie może wymagać pozostawienia jawnej kopii danych na wewnętrznym SSD. Przed wycofaniem użytkownik musi mieć możliwość świadomego eksportu plików do wskazanej lokalizacji po podłączeniu obu udziałów. Eksport musi wyraźnie informować, że pliki docelowe nie będą już chronione mechanizmem podziału sekretu.
+Rolling back the program must not require leaving a plaintext copy of the data on the internal SSD. Before rollback the user must be able to deliberately export the files to a specified location with both shares connected. The export must clearly state that the target files will no longer be protected by the secret-splitting mechanism.
 
 ## 9. Additional Information
 
-### 9.1. Odrzucone alternatywy
+### 9.1. Rejected alternatives
 
-- **Cały dysk systemowy:** odrzucony dla MVP ze względu na złożoność uruchamiania macOS, sterowników i odzyskiwania po awarii.
-- **Karta z samym kluczem AES:** nie realizuje celu informacyjno-teoretycznej ochrony udziałów przy P = NP.
-- **Tradycyjny RAID 1:** przechowuje pełne kopie danych, więc utrata pojedynczego nośnika ujawnia całość.
-- **OTP do komunikacji sieciowej:** poza zakresem tej specyfikacji.
-- **Przeniesienie gotowego SafeFS bez audytu:** odrzucone, ponieważ wymaga osobnego sprawdzenia generatora losowości, współczesnej zgodności z macOS i bezpieczeństwa zapisów.
+- **Whole system disk:** rejected for the MVP due to the complexity of booting macOS, drivers and recovery after failure.
+- **Card with only an AES key:** does not achieve the goal of information-theoretic protection of shares under P = NP.
+- **Traditional RAID 1:** stores full copies of data, so losing a single medium reveals everything.
+- **OTP for network communication:** outside the scope of this spec.
+- **Porting the existing SafeFS without an audit:** rejected, because it requires a separate check of the randomness generator, current compatibility with macOS and write safety.
 
-### 9.2. Dług techniczny i ryzyka
+### 9.2. Technical debt and risks
 
-- **R-01.** Wybranie CSPRNG dla prototypu oznacza brak ścisłej gwarancji P = NP.
-- **R-02.** Zwykłe aplikacje mogą pozostawiać jawne kopie dokumentów poza wirtualnym katalogiem.
-- **R-03.** Karta SD może zostać niespodziewanie odłączona.
-- **R-04.** Podział XOR sam nie gwarantuje integralności ani autentyczności danych.
-- **R-05.** Backup jednego udziału nie wystarcza do odzyskania danych.
-- **R-06.** Wyciek rozmiarów, czasów dostępu oraz pewnych metadanych nie jest automatycznie wyeliminowany.
+- **R-01.** Choosing a CSPRNG for the prototype means no strict P = NP guarantee.
+- **R-02.** Ordinary applications may leave plaintext copies of documents outside the virtual folder.
+- **R-03.** The SD card may be unexpectedly disconnected.
+- **R-04.** XOR splitting alone does not guarantee integrity or authenticity of the data.
+- **R-05.** A backup of one share is not enough to recover the data.
+- **R-06.** Leakage of sizes, access times and certain metadata is not automatically eliminated.
 
-### 9.3. Zależności zewnętrzne
+### 9.3. External dependencies
 
-- Mechanizm wirtualnego systemu plików obsługiwany przez wybrane wydania macOS.
-- Nośniki SD zapewniające wymagane operacje trwałego zapisu.
-- Dostępne narzędzia testowania błędów I/O i awarii zasilania.
-- Niezależny przegląd projektu kryptograficznego.
-- Osobna ocena źródła entropii dla wariantu informacyjno-teoretycznego.
+- A virtual file system mechanism supported by the selected macOS releases.
+- SD media providing the required durable write operations.
+- Available tools for testing I/O errors and power failures.
+- An independent review of the cryptographic design.
+- A separate evaluation of the entropy source for the information-theoretic variant.
 
-### 9.4. Otwarte pytania — wymagają decyzji
+### 9.4. Open questions — require decisions
 
-- **Q-01.** Czy pierwsza wersja ma obsługiwać wyłącznie najnowsze wydanie macOS, czy również starsze wspierane wersje?
-- **Q-02.** Czy chroniony katalog ma być dostępny przez FSKit, macFUSE czy inny wspierany interfejs? Decyzję należy podjąć po porównaniu stabilności i uprawnień.
-- **Q-03.** Czy prototyp ma używać CSPRNG wyłącznie do demonstracji, a tryb informacyjno-teoretyczny powstanie jako osobna specyfikacja?
-- **Q-04.** Jak obsługiwać spójne kopie zapasowe obu udziałów, żeby przypadkowa awaria SD nie oznaczała trwałej utraty danych?
-- **Q-05.** Jakie wymagania integralności obowiązują wobec atakującego, który może modyfikować jeden udział? Jest to osobny problem od poufności i wymaga jawnej decyzji kryptograficznej.
-- **Q-06.** Czy pierwsza wersja ma obsługiwać edycję dowolnych dokumentów w aplikacjach tworzących automatyczne kopie i pliki tymczasowe, czy tylko uzgodnioną listę programów?
+- **Q-01.** Should the first version support only the latest macOS release, or also older supported versions?
+- **Q-02.** Should the protected folder be accessible via FSKit, macFUSE or another supported interface? The decision should be made after comparing stability and permissions.
+- **Q-03.** Should the prototype use the CSPRNG only for demonstration, with the information-theoretic mode created as a separate spec?
+- **Q-04.** How should consistent backups of both shares be handled, so that an accidental SD failure does not mean permanent data loss?
+- **Q-05.** What integrity requirements apply against an attacker who can modify one share? This is a separate problem from confidentiality and requires an explicit cryptographic decision.
+- **Q-06.** Should the first version support editing arbitrary documents in applications that create automatic copies and temporary files, or only an agreed list of programs?
 
-### 9.5. Proces
+### 9.5. Process
 
-Projekt jest prowadzony zgodnie z Rondo / CDD (zob. `CLAUDE.md`): każda zmiana ma własną specyfikację w `specs/`, `README.md` opisuje faktyczny stan, `CHANGELOG.md` dokumentuje zrealizowane zmiany, wymagania prowadzą do testów i bramek, a po każdej rundzie wykonywana jest analiza bezpieczeństwa bieżącej i wcześniejszych funkcjonalności. Wykryta luka wymaga udokumentowania, testu odtwarzającego problem i poprawki przed zamknięciem rundy.
+The project is run according to Rondo / CDD (see `CLAUDE.md`): each change has its own spec in `specs/`, `README.md` describes the actual state, `CHANGELOG.md` documents delivered changes, requirements lead to tests and gates, and after each round a security analysis of the current and earlier functionality is performed. A detected gap requires documentation, a test reproducing the problem and a fix before the round is closed.
 
-### 9.6. Materiały źródłowe
+### 9.6. Source materials
 
 - Rondo / Context-Driven Development: https://workwithrondo.com/
 - SafeFS: https://github.com/safecloud-project/SafeFS
 - Lecithine: https://sourceforge.net/projects/leci/
-- Dokumentacja Apple dotycząca FSKit i mechanizmów bezpieczeństwa macOS.
-- Literatura dotycząca one-time pad, doskonałej tajności i podziału sekretów.
+- Apple documentation on FSKit and macOS security mechanisms.
+- Literature on the one-time pad, perfect secrecy and secret sharing.
 
-### 9.7. Historia nazwy
+### 9.7. Name history
 
-Robocza nazwa w pierwszym szkicu: „OpenTrust Secure Folders” / „OpenTrust Storage”. Decyzja właściciela (2026-11-22): projekt i produkt nazywają się **xordock**.
+Working name in the first draft: "OpenTrust Secure Folders" / "OpenTrust Storage". Owner's decision (2026-11-22): the project and the product are named **xordock**.
 
-### 9.8. Decyzje (2026-11-22)
+### 9.8. Decisions (2026-11-22)
 
-Właściciel polecił przyjąć rekomendacje bez dalszych pytań.
+The owner instructed to accept the recommendations without further questions.
 
-- **Q-01:** tylko macOS 27 (Apple Silicon), czyli wersja, na której pracujemy.
-- **Q-02:** prototyp montuje katalog przez lokalny serwer WebDAV (127.0.0.1) i wbudowany w macOS `mount_webdav`. Powody: brak Xcode na stanowisku (FSKit wymaga rozszerzenia aplikacji podpisanego przez Apple Developer), macFUSE wymaga rozszerzenia jądra i obniżenia zabezpieczeń na Apple Silicon. WebDAV działa bez uprawnień administratora. **Koszt:** agent WebDAV macOS buforuje treść plików na SSD (znalezisko F-01). Docelowa integracja to S002.
-- **Q-03:** prototyp używa CSPRNG (`crypto/rand`). Tryb informacyjno-teoretyczny to osobna specyfikacja (IT-01–IT-04 bez zmian).
-- **Q-04:** w prototypie bez automatycznych kopii. Zalecenie w `docs/uzytkowanie.md`: kopia katalogu sejfu z karty na drugą kartę przechowywaną osobno, przy odmontowanym sejfie. Pełne rozwiązanie w osobnej specyfikacji.
-- **Q-05:** każdy udział ma własną sumę SHA-256 oraz nagłówek wiążący go z sejfem, stroną i obiektem. To wykrywa uszkodzenia przypadkowe i pomieszanie udziałów. **Nie** wykrywa celowej podmiany (XOR jest plastyczny, R-04). Skrót udziału A zapisany na B (i odwrotnie) został odrzucony, bo pozwoliłby nieograniczonemu przeciwnikowi z jednym udziałem weryfikować hipotezy o treści (łamie G-06). Integralność wobec przeciwnika to osobna specyfikacja.
-- **Q-06:** brak listy aplikacji; ograniczenia opisane w `docs/uzytkowanie.md` (FR-25, FR-26).
-- **FR-05 (hasło):** odłożone do osobnej specyfikacji. W prototypie autoryzacją (SC-03) jest właściwa karta i zalogowana sesja użytkownika macOS.
-- **Język implementacji:** Go, jedna zależność: `golang.org/x/net/webdav` (oficjalny moduł Go).
-- **Blokada:** sejf otwiera naraz tylko jeden proces (`flock` na `lock` w udziale A).
-- **FileVault:** `xordock mount` odmawia działania bez FileVault (flaga `--allow-no-filevault` świadomie to obchodzi), bo F-01.
+- **Q-01:** only macOS 27 (Apple Silicon), i.e. the version we work on.
+- **Q-02:** the prototype mounts the folder via a local WebDAV server (127.0.0.1) and the macOS built-in `mount_webdav`. Reasons: no Xcode on the workstation (FSKit requires an app extension signed via Apple Developer), macFUSE requires a kernel extension and lowered security on Apple Silicon. WebDAV works without administrator privileges. **Cost:** the macOS WebDAV agent caches file contents on the SSD (finding F-01). The target integration is S002.
+- **Q-03:** the prototype uses a CSPRNG (`crypto/rand`). The information-theoretic mode is a separate spec (IT-01–IT-04 unchanged).
+- **Q-04:** no automatic backups in the prototype. Recommendation in `docs/usage.md`: copy the vault folder from the card to a second card stored separately, with the vault unmounted. The full solution in a separate spec.
+- **Q-05:** each share has its own SHA-256 checksum and a header binding it to the vault, side and object. This detects accidental damage and mixing up of shares. It does **not** detect deliberate substitution (XOR is malleable, R-04). A hash of share A stored on B (and vice versa) was rejected, because it would let an unbounded adversary with one share verify hypotheses about the content (breaks G-06). Integrity against an adversary is a separate spec.
+- **Q-06:** no list of applications; limitations described in `docs/usage.md` (FR-25, FR-26).
+- **FR-05 (password):** deferred to a separate spec. In the prototype the authorization (SC-03) is the correct card and the logged-in macOS user session.
+- **Implementation language:** Go, one dependency: `golang.org/x/net/webdav` (official Go module).
+- **Lock:** the vault is opened by only one process at a time (`flock` on `lock` in share A).
+- **FileVault:** `xordock mount` refuses to run without FileVault (the `--allow-no-filevault` flag deliberately bypasses this), because of F-01.
 
-### 9.9. Realizacja i dowody
+### 9.9. Implementation and evidence
 
-| Bramka | Dowód | Wynik |
+| Gate | Evidence | Result |
 |---|---|---|
-| CG-01 | `TestRoundTripAfterReopen`, `TestWebDAVLifecycle`, `TestRandomWritesMatchModel`; E2E: `cp`/`cmp` 20 MB i 3 MB przez montowanie, po ponownym montowaniu | ✅ |
-| CG-02 | `TestSharesHoldNoPlaintext`; E2E: `grep` markera i nazwy pliku w udziale A na SSD | ✅ |
-| CG-03 | jw., udział B na karcie | ✅ |
-| CG-04 | `TestEveryWriteGetsFreshMask` (instrumentowane źródło masek, 16 masek, 0 powtórzeń), `TestFreshMaskEachSplit` | ✅ |
-| CG-05 | `TestMissingCardBlocksOpen`; E2E: odmontowanie karty → katalog odmontowany w ≤ 1 s, `mount` bez karty odrzucony | ✅ |
+| CG-01 | `TestRoundTripAfterReopen`, `TestWebDAVLifecycle`, `TestRandomWritesMatchModel`; E2E: `cp`/`cmp` 20 MB and 3 MB through the mount, after remounting | ✅ |
+| CG-02 | `TestSharesHoldNoPlaintext`; E2E: `grep` for the marker and file name in share A on the SSD | ✅ |
+| CG-03 | as above, share B on the card | ✅ |
+| CG-04 | `TestEveryWriteGetsFreshMask` (instrumented mask source, 16 masks, 0 repeats), `TestFreshMaskEachSplit` | ✅ |
+| CG-05 | `TestMissingCardBlocksOpen`; E2E: unmounting the card → folder unmounted in ≤ 1 s, `mount` without the card rejected | ✅ |
 | CG-06 | `TestWrongCardRejected` | ✅ |
-| CG-07 | `TestCrashAtEveryStage` (13 scenariuszy: każde wystąpienie każdego etapu przy zapisie 4 bloków i indeksu), `TestInterruptedInitFinished`, `TestTornTempFilesCleaned`, `TestCorruptShareIsError`, `TestCorruptSuperIsError` | ✅ w modelu testowym; brak testu z fizycznym odcięciem zasilania |
-| CG-08 | `TestConcurrentWrites`, `TestConcurrentPUT` (z `-race`), `TestSecondOpenLocked` | ✅ |
+| CG-07 | `TestCrashAtEveryStage` (13 scenarios: every occurrence of every stage when writing 4 blocks and the index), `TestInterruptedInitFinished`, `TestTornTempFilesCleaned`, `TestCorruptShareIsError`, `TestCorruptSuperIsError` | ✅ in the test model; no test with a physical power cut |
+| CG-08 | `TestConcurrentWrites`, `TestConcurrentPUT` (with `-race`), `TestSecondOpenLocked` | ✅ |
 | CG-09 | `TestLogsHoldNoSecrets`, `TestStripPaths` | ✅ |
-| CG-10 | `TestKindIsHonest`; komunikat „Maski: CSPRNG (prototyp)… BEZ gwarancji odporności na P = NP” przy `init` i `mount` | ✅ |
-| CG-11 | `docs/bezpieczenstwo/2026-11-22-runda-S001.md` | ✅ bez regresji krytycznych; F-01 (wysokie) otwarte → S002 |
+| CG-10 | `TestKindIsHonest`; message "Masks: CSPRNG (prototype)… NO guarantee of resistance to P = NP" at `init` and `mount` | ✅ |
+| CG-11 | `docs/security/2026-11-22-round-S001.md` | ✅ no critical regressions; F-01 (high) open → S002 |
 
-CP-07 (demonstracja) wykonano przez `mount_webdav`, tę samą ścieżkę, której używa Finder: zapis, odmontowanie, brak karty → brak dostępu, karta z powrotem → plik bez zmian. Nie klikano w Finderze (praca bez obecności właściciela).
+CP-07 (demonstration) was performed via `mount_webdav`, the same path Finder uses: write, unmount, no card → no access, card back → file unchanged. Finder was not clicked through (work done without the owner present).
 
 ---
 
-**Warunek zamknięcia specyfikacji:** zatwierdzony zakres MVP, ustalona integracja z macOS, przyjęty model bezpieczeństwa prototypu oraz zaakceptowane bramki CG-01–CG-11.
+**Spec closing condition:** approved MVP scope, settled macOS integration, accepted prototype security model and accepted gates CG-01–CG-11.
 
-**Status bezpieczeństwa P = NP:** cel badawczy, niepotwierdzony dla pierwszego wydania. Wymaga osobnego procesu walidacji IT-01–IT-04.
+**P = NP security status:** a research goal, unconfirmed for the first release. Requires a separate validation process IT-01–IT-04.

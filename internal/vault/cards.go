@@ -4,16 +4,16 @@ import (
 	"path/filepath"
 )
 
-// Card to katalog sejfu znaleziony na wolumenie (karta robocza albo zapasowa).
+// Card is a vault directory found on a volume (working or spare card).
 type Card struct {
 	Root  string
-	Role  string // "" = robocza, "backup" = zapasowa
+	Role  string // "" = working, "backup" = spare
 	Media string
 }
 
-// FindCards przeszukuje <volumes>/*/xordock/*/ i zwraca katalogi należące do
-// sejfu id. Rozpoznajemy po identyfikatorze sejfu z nagłówka, nie po nazwie
-// wolumenu ani katalogu.
+// FindCards searches <volumes>/*/xordock/*/ and returns the directories belonging to
+// vault id. We recognize them by the vault ID from the header, not by the volume
+// or directory name.
 func FindCards(volumes string, id ID) []Card {
 	var out []Card
 	matches, _ := filepath.Glob(filepath.Join(volumes, "*", "xordock", "*", headerFile))
@@ -28,15 +28,15 @@ func FindCards(volumes string, id ID) []Card {
 	return out
 }
 
-// CardEntry to katalog sejfu na wolumenie wraz z identyfikatorem i nazwą
-// z nagłówka (lista nośników w aplikacji, S007 U-02).
+// CardEntry is a vault directory on a volume with the ID and name
+// from its header (the device list in the app, S007 U-02).
 type CardEntry struct {
 	Card
 	Vault string
 	Name  string
 }
 
-// ListCards zwraca katalogi sejfów (roboczych i zapasowych) na jednym wolumenie.
+// ListCards returns the vault directories (working and spare) on one volume.
 func ListCards(volume string) []CardEntry {
 	var out []CardEntry
 	matches, _ := filepath.Glob(filepath.Join(volume, "xordock", "*", headerFile))

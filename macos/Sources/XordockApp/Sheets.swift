@@ -13,39 +13,39 @@ struct NewVaultSheet: View {
     private var cards: [VolumeInfo] { model.volumes.filter(\.usableAsCard) }
     private var nameError: String? {
         if let e = VaultName.validate(name) { return e }
-        if model.state.vaults.contains(where: { $0.name == name }) { return "Sejf o tej nazwie już istnieje." }
+        if model.state.vaults.contains(where: { $0.name == name }) { return "A vault with this name already exists." }
         return nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Nowy sejf").font(.title2)
+            Text("New vault").font(.title2)
             if tour?.step == .createVault {
-                TourHint("Wpisz nazwę, np. „Dokumenty”, i wybierz kartę lub pendrive. Na nim zapisze się połówka B.")
+                TourHint("Enter a name, e.g. \"Documents\", and choose a card or USB drive. Half B will be stored on it.")
             }
             Form {
-                TextField("Nazwa", text: $name)
+                TextField("Name", text: $name)
                 if !name.isEmpty, let e = nameError { Text(e).foregroundStyle(.red).font(.caption) }
-                VolumePicker(title: "Karta robocza (B)", volumes: cards, selection: $card)
+                VolumePicker(title: "Working card (B)", volumes: cards, selection: $card)
                 if cards.isEmpty {
-                    Text("Podłącz kartę SD albo pendrive (najlepiej APFS lub Mac OS Extended).").foregroundStyle(.orange)
+                    Text("Connect an SD card or USB drive (preferably APFS or Mac OS Extended).").foregroundStyle(.orange)
                 }
                 if let c = card, c.fs == "msdos" || c.fs == "exfat" {
-                    Text("FAT/exFAT gorzej znosi nagłe wyjęcie. Zalecany APFS lub Mac OS Extended.").foregroundStyle(.orange).font(.caption)
+                    Text("FAT/exFAT copes worse with sudden removal. APFS or Mac OS Extended is recommended.").foregroundStyle(.orange).font(.caption)
                 }
             }
             .formStyle(.grouped)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Udział A trafi na SSD tego Maca, udział B na wybraną kartę. Żaden z nich osobno nie zawiera treści plików.")
-                Text("Ochrona jest praktyczna (obliczeniowa), BEZ gwarancji informacyjno-teoretycznej.")
-                Text("Bez karty roboczej danych nie da się odczytać. Rób regularnie backup na drugą kartę.")
+                Text("Share A goes to this Mac's SSD, share B to the chosen card. Neither of them on its own contains file contents.")
+                Text("Practical (computational) protection, NO information-theoretic guarantee.")
+                Text("Without the working card the data can't be read. Back up regularly to a second card.")
                     .foregroundStyle(.orange)
             }
             .font(.caption)
             HStack {
                 Spacer()
-                Button("Anuluj") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Załóż sejf") {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Create vault") {
                     guard let c = card else { return }
                     Task { if await model.create(name: name, card: c) { dismiss() } }
                 }
@@ -71,32 +71,32 @@ struct BackupSheet: View {
     var body: some View {
         let cands = vault.candidatesForSpare(in: model.volumes)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Backup sejfu „\(vault.name)”").font(.title2)
+            Text("Back up vault \"\(vault.name)\"").font(.title2)
             if tour?.step == .backup {
-                TourHint("Wybierz drugi nośnik (inny niż karta robocza) i kliknij „Wykonaj backup”.")
+                TourHint("Choose a second drive (not the working card) and click \"Run backup\".")
             }
             Form {
-                VolumePicker(title: "Karta zapasowa", volumes: cands, selection: $spare)
+                VolumePicker(title: "Spare card", volumes: cands, selection: $spare)
                 if cands.isEmpty {
-                    Text("Podłącz drugi nośnik (inny niż karta robocza).").foregroundStyle(.orange)
+                    Text("Connect a second drive (not the working card).").foregroundStyle(.orange)
                 }
             }
             .formStyle(.grouped)
             VStack(alignment: .leading, spacing: 4) {
                 if vault.mounted {
-                    Text("Sejf zostanie odmontowany (zapisz i zamknij otwarte pliki).").foregroundStyle(.orange)
+                    Text("The vault will be unmounted (save and close open files).").foregroundStyle(.orange)
                 }
-                Text("Migawka → kopia B na kartę zapasową → kopia A do iCloud → weryfikacja.")
+                Text("Snapshot → copy of B to the spare card → copy of A to iCloud → verification.")
                 if !model.state.icloud {
-                    Text("iCloud Drive niedostępny: powstanie tylko kopia B. Utrata SSD = utrata danych.").foregroundStyle(.orange)
+                    Text("iCloud Drive unavailable: only the copy of B will be made. Losing the SSD = losing data.").foregroundStyle(.orange)
                 }
-                Text("Karta robocza i zapasowa muszą być podłączone jednocześnie.")
+                Text("The working card and the spare card must be connected at the same time.")
             }
             .font(.caption)
             HStack {
                 Spacer()
-                Button("Anuluj") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Wykonaj backup") {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Run backup") {
                     if model.state.icloud && !model.adpAccepted {
                         showADP = true
                     } else {
@@ -111,14 +111,14 @@ struct BackupSheet: View {
         }
         .padding(20)
         .frame(width: 560)
-        .alert("Kopia udziału A w iCloud", isPresented: $showADP) {
-            Button("Rozumiem, kontynuuj") {
+        .alert("Share A copy in iCloud", isPresented: $showADP) {
+            Button("I understand, continue") {
                 model.adpAccepted = true
                 run()
             }
-            Button("Anuluj", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Udział A trafi do iCloud Drive. Sam niczego nie zdradza, ale konto iCloud razem z dowolną kartą B (roboczą lub zapasową) daje komplet. Włącz dwuetapowe uwierzytelnianie i Advanced Data Protection (Ustawienia → [Twoje imię] → iCloud) i nie trzymaj kart razem.")
+            Text("Share A will go to iCloud Drive. On its own it reveals nothing, but the iCloud account together with any B card (working or spare) is a complete set. Enable two-factor authentication and Advanced Data Protection (System Settings → [Your name] → iCloud) and keep the cards apart.")
         }
         .task {
             await model.refresh()
@@ -147,28 +147,28 @@ struct RecoverySheet: View {
     var body: some View {
         let spares = recoverySources(id: target.id, volumes: model.volumes, fromICloud: fromICloud)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Odzyskiwanie sejfu „\(target.name)”").font(.title2)
+            Text("Recover vault \"\(target.name)\"").font(.title2)
             Text(fromICloud
-                 ? "Udział A z kopii w iCloud Drive (bez SSD), udział B z karty zapasowej albo roboczej."
-                 : "Działa bez karty roboczej: składa dane z udziału A na tym Macu i karty zapasowej.")
+                 ? "Share A from the copy in iCloud Drive (without SSD), share B from the spare or working card."
+                 : "Works without the working card: rebuilds the data from share A on this Mac and the spare card.")
                 .font(.caption)
             Form {
                 if target.hasACopy && !target.fromICloud {
-                    Toggle("Udział A z kopii w iCloud (gdy A na SSD jest uszkodzony)", isOn: $fromICloud)
+                    Toggle("Share A from the iCloud copy (when A on the SSD is damaged)", isOn: $fromICloud)
                 }
-                VolumePicker(title: fromICloud ? "Karta (zapasowa lub robocza)" : "Karta zapasowa", volumes: spares, selection: $spare)
+                VolumePicker(title: fromICloud ? "Card (spare or working)" : "Spare card", volumes: spares, selection: $spare)
                 if spares.isEmpty {
-                    Text("Nie wykryto karty tego sejfu.").foregroundStyle(.orange)
+                    Text("No card of this vault was detected.").foregroundStyle(.orange)
                 }
                 if let r = result {
-                    Picker("Punkt odzyskiwania", selection: $point) {
+                    Picker("Recovery point", selection: $point) {
                         ForEach(r.points) { p in
                             Text("\(p.created.formatted(date: .abbreviated, time: .shortened)) · commit \(p.seq) · \(formatBytes(UInt64(max(p.bytes, 0))))")
                                 .tag(PointInfo?.some(p))
                         }
                     }
-                    ForEach(r.rejected, id: \.self) { Text("Odrzucony: \($0)").font(.caption).foregroundStyle(.orange) }
-                    if r.points.isEmpty { Text("Brak punktów READY.").foregroundStyle(.red) }
+                    ForEach(r.rejected, id: \.self) { Text("Rejected: \($0)").font(.caption).foregroundStyle(.orange) }
+                    if r.points.isEmpty { Text("No READY points.").foregroundStyle(.red) }
                 }
                 if let e = loadError { Text(e).foregroundStyle(.red) }
             }
@@ -180,34 +180,34 @@ struct RecoverySheet: View {
             }
 
             if let s = spare, let p = point {
-                GroupBox("Sprawdź") {
+                GroupBox("Check") {
                     HStack {
-                        Text("Składa i sprawdza wszystkie pliki punktu, niczego nie zapisuje.").font(.caption)
+                        Text("Rebuilds and checks all files of the point, writes nothing.").font(.caption)
                         Spacer()
-                        Button("Weryfikuj") {
-                            Task { await model.perform("Weryfikacja punktu…", [Commands.verify(name: target.name, spare: s.path, point: p.id, fromICloud: fromICloud)], success: "Punkt kompletny: wszystkie pliki dają się odtworzyć.") }
+                        Button("Verify") {
+                            Task { await model.perform("Verifying point…", [Commands.verify(name: target.name, spare: s.path, point: p.id, fromICloud: fromICloud)], success: "Point complete: all files can be restored.") }
                         }
                     }
                 }
-                GroupBox("Eksport jawnych plików") {
+                GroupBox("Export plaintext files") {
                     HStack {
-                        Text("Pliki w wybranym katalogu NIE są chronione podziałem XOR.").font(.caption).foregroundStyle(.orange)
+                        Text("Files in the chosen folder are NOT protected by the XOR split.").font(.caption).foregroundStyle(.orange)
                         Spacer()
-                        Button("Eksportuj do…") { export(spare: s, point: p) }
+                        Button("Export to…") { export(spare: s, point: p) }
                     }
                 }
-                GroupBox("Odtwórz na nową kartę") {
+                GroupBox("Restore to a new card") {
                     VStack(alignment: .leading) {
-                        VolumePicker(title: "Nowa karta robocza", volumes: model.volumes.filter { $0.usableAsCard && $0.path != s.path }, selection: $newCard)
-                        TextField("Nazwa nowego sejfu", text: $newName)
+                        VolumePicker(title: "New working card", volumes: model.volumes.filter { $0.usableAsCard && $0.path != s.path }, selection: $newCard)
+                        TextField("New vault name", text: $newName)
                         if !newName.isEmpty, let e = VaultName.validate(newName) { Text(e).font(.caption).foregroundStyle(.red) }
                         HStack {
-                            Text("Nowy sejf dostaje nowe maski. Po sprawdzeniu usuń stary udział A.").font(.caption)
+                            Text("The new vault gets new masks. After checking it, delete the old share A.").font(.caption)
                             Spacer()
-                            Button("Odtwórz") {
+                            Button("Restore") {
                                 guard let c = newCard else { return }
                                 Task {
-                                    await model.perform("Odtwarzanie…", [Commands.restore(name: target.name, spare: s.path, point: p.id, card: c.path, newName: newName, fromICloud: fromICloud)], success: "Odtworzono sejf „\(newName)”. Sprawdź go, potem usuń wszystkie kopie starego A.")
+                                    await model.perform("Restoring…", [Commands.restore(name: target.name, spare: s.path, point: p.id, card: c.path, newName: newName, fromICloud: fromICloud)], success: "Restored vault \"\(newName)\". Check it, then delete all copies of the old A.")
                                 }
                             }
                             .disabled(newCard == nil || VaultName.validate(newName) != nil)
@@ -218,7 +218,7 @@ struct RecoverySheet: View {
             HStack {
                 if let b = model.busy { ProgressView().controlSize(.small); Text(b) }
                 Spacer()
-                Button("Zamknij") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             if let e = model.errorText { Text(e).foregroundStyle(.red).textSelection(.enabled) }
             if let m = model.message, !m.isEmpty { Text(m).foregroundStyle(.green).textSelection(.enabled) }
@@ -229,8 +229,8 @@ struct RecoverySheet: View {
         .task {
             fromICloud = target.fromICloud
             await model.refresh()
-            // Bez udziału A na Macu nazwa może zostać ta sama.
-            newName = target.fromICloud ? target.name : target.name + "-odzyskany"
+            // Without share A on the Mac the name can stay the same.
+            newName = target.fromICloud ? target.name : target.name + "-recovered"
             if spare == nil { spare = recoverySources(id: target.id, volumes: model.volumes, fromICloud: fromICloud).first }
         }
     }
@@ -241,7 +241,7 @@ struct RecoverySheet: View {
         loadError = nil
         guard let s = spare else { return }
         if target.mounted && !fromICloud {
-            loadError = "Odmontuj sejf przed odzyskiwaniem."
+            loadError = "Unmount the vault before recovery."
             return
         }
         do {
@@ -255,12 +255,12 @@ struct RecoverySheet: View {
 
     private func export(spare: VolumeInfo, point: PointInfo) {
         let panel = NSSavePanel()
-        panel.title = "Nowy katalog na wyeksportowane pliki"
-        panel.nameFieldStringValue = "\(target.name)-eksport"
+        panel.title = "New folder for exported files"
+        panel.nameFieldStringValue = "\(target.name)-export"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
-            await model.perform("Eksport…", [Commands.export(name: target.name, spare: spare.path, point: point.id, to: url.path, fromICloud: fromICloud)], success: "Wyeksportowano do \(url.lastPathComponent) (pliki jawne).")
+            await model.perform("Exporting…", [Commands.export(name: target.name, spare: spare.path, point: point.id, to: url.path, fromICloud: fromICloud)], success: "Exported to \(url.lastPathComponent) (plaintext files).")
         }
     }
 }

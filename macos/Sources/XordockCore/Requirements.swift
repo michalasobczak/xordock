@@ -1,6 +1,6 @@
 import Foundation
 
-// Wymagania (S011): wynik `xordock doctor --json` i reguły startu aplikacji.
+// Requirements (S011): `xordock doctor --json` result and app launch rules.
 
 public struct RequirementCheck: Decodable, Equatable, Identifiable, Sendable {
     public var id: String
@@ -42,25 +42,25 @@ public struct DoctorResult: Decodable, Equatable, Sendable {
 
     func check(_ id: String) -> RequirementCheck? { checks.first { $0.id == id } }
 
-    /// Próba montowania potrzebna: macFUSE jest, rozszerzenie niepotwierdzone
-    /// dla tej wersji macFUSE (ani próbą, ani udanym montowaniem sejfu).
+    /// Test mount needed: macFUSE is present, the extension is unconfirmed
+    /// for this macFUSE version (neither by a test mount nor by a successful vault mount).
     public func needsProbe(confirmedFor: String?) -> Bool {
         guard check("macfuse")?.level == "ok", check("extension")?.level == "unknown" else { return false }
         return confirmedFor == nil || confirmedFor != macfuseVersion
     }
 
-    /// Rozszerzenie potwierdzone wcześniej: pokazujemy je jako „ok”.
+    /// Extension confirmed earlier: we show it as "ok".
     public func applyingConfirmation(_ confirmedFor: String?) -> DoctorResult {
         guard let v = confirmedFor, v == macfuseVersion else { return self }
         var r = self
         for i in r.checks.indices where r.checks[i].id == "extension" && r.checks[i].level == "unknown" {
             r.checks[i].level = "ok"
-            r.checks[i].detail = "Potwierdzone udanym montowaniem."
+            r.checks[i].detail = "Confirmed by a successful mount."
         }
         return r
     }
 
-    /// Wersja macFUSE, dla której próba właśnie potwierdziła rozszerzenie.
+    /// macFUSE version for which the test just confirmed the extension.
     public var confirmedVersion: String? {
         check("extension")?.level == "ok" ? macfuseVersion : nil
     }

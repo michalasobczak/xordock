@@ -3,8 +3,8 @@ import SwiftUI
 import XordockCore
 import XordockUI
 
-// Render pulpitu do PNG dla przykładowych stanów (S009 G4).
-// Użycie: swift run XordockPreview <katalog wyjściowy>
+// Renders the dashboard to PNG for sample states (S009 G4).
+// Usage: swift run XordockPreview <output directory>
 
 let out = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ".")
 try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -27,15 +27,15 @@ func vault(_ patch: (inout [String: Any]) -> Void) -> VaultInfo {
 
 let cases: [(String, VaultInfo, Bool)] = [
     ("1-ok", vault { _ in }, false),
-    ("2-brak-kopii-A", vault { $0["aCopy"] = nil }, false),
-    ("3-brak-karty", vault { $0["card"] = nil; $0["spares"] = []; $0["lastBackup"] = nil; $0["aCopy"] = nil }, false),
-    ("4-otwarty-szczegoly", vault { $0["mounted"] = true; $0["changesSinceBackup"] = 0 }, true),
+    ("2-no-a-copy", vault { $0["aCopy"] = nil }, false),
+    ("3-no-card", vault { $0["card"] = nil; $0["spares"] = []; $0["lastBackup"] = nil; $0["aCopy"] = nil }, false),
+    ("4-open-details", vault { $0["mounted"] = true; $0["changesSinceBackup"] = 0 }, true),
 ]
 
 @MainActor func render() {
     for scheme in [ColorScheme.light, .dark] {
         for (name, v, details) in cases {
-            let view = Dashboard(vault: v, icloud: true, masks: "CSPRNG macOS (SecRandomCopyBytes): ochrona praktyczna (obliczeniowa), BEZ gwarancji informacyjno-teoretycznej",
+            let view = Dashboard(vault: v, icloud: true, masks: "CSPRNG macOS (SecRandomCopyBytes): practical (computational) protection, NO information-theoretic guarantee",
                                  busy: false, actions: DashboardActions(), showDetails: details).content
                 .frame(width: name.hasPrefix("3") ? 560 : 760, alignment: .topLeading)
                 .background(scheme == .dark ? Color(white: 0.12) : Color(white: 0.98))
@@ -44,10 +44,10 @@ let cases: [(String, VaultInfo, Bool)] = [
             r.scale = 1
             guard let img = r.nsImage, let tiff = img.tiffRepresentation,
                   let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
-                print("błąd renderu \(name)")
+                print("render error \(name)")
                 continue
             }
-            let f = out.appendingPathComponent("\(name)-\(scheme == .dark ? "ciemny" : "jasny").png")
+            let f = out.appendingPathComponent("\(name)-\(scheme == .dark ? "dark" : "light").png")
             try! png.write(to: f)
             print(f.path)
         }
@@ -59,41 +59,41 @@ let cases: [(String, VaultInfo, Bool)] = [
     let r = ImageRenderer(content: view)
     r.scale = 1
     guard let img = r.nsImage, let tiff = img.tiffRepresentation,
-          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return print("błąd \(name)") }
-    let f = out.appendingPathComponent("\(name)-\(dark ? "ciemny" : "jasny").png")
+          let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return print("error \(name)") }
+    let f = out.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png")
     try! png.write(to: f)
     print(f.path)
 }
 
-// S010: ekrany wprowadzenia, dymki, pytanie przy starcie.
+// S010: introduction screens, tips, launch prompt.
 @MainActor func renderTutorial() {
     for dark in [false, true] {
         for i in Intro.pages.indices {
             save(IntroView(start: i, onFinish: {}, onSkip: {}), "intro-\(i + 1)", dark: dark)
         }
         for s in [TourStep.mount, .backup, .menuBar] {
-            save(TourBubble(step: s, number: s.rawValue + 1, onNext: {}, onFinish: {}), "dymek-\(s)", dark: dark)
+            save(TourBubble(step: s, number: s.rawValue + 1, onNext: {}, onFinish: {}), "tip-\(s)", dark: dark)
         }
         save(StartPrompt(askAtLaunch: .constant(true), onStart: {}, onLater: {}), "start", dark: dark)
     }
 }
 
-// S011: arkusz wymagań z brakami.
+// S011: requirements sheet with missing items.
 @MainActor func renderRequirements() {
     let r = DoctorResult(macfuseVersion: nil, checks: [
-        RequirementCheck(id: "macos", title: "macOS 26 lub nowszy", level: "ok", detail: "macOS 27.0"),
-        RequirementCheck(id: "macfuse", title: "macFUSE 5.5 lub nowszy", level: "error",
-                         detail: "macFUSE nie jest zainstalowany. Bez niego sejfu nie da się otworzyć w Finderze.",
-                         fixLabel: "Pobierz macFUSE", fixURL: "https://macfuse.github.io/"),
-        RequirementCheck(id: "extension", title: "Rozszerzenie systemu plików macFUSE", level: "unknown",
-                         detail: "Nie sprawdzono. Sprawdzenie wymaga próbnego montowania."),
-        RequirementCheck(id: "filevault", title: "FileVault", level: "ok", detail: "Włączony."),
+        RequirementCheck(id: "macos", title: "macOS 26 or later", level: "ok", detail: "macOS 27.0"),
+        RequirementCheck(id: "macfuse", title: "macFUSE 5.5 or later", level: "error",
+                         detail: "macFUSE is not installed. Without it the vault can't be opened in Finder.",
+                         fixLabel: "Download macFUSE", fixURL: "https://macfuse.github.io/"),
+        RequirementCheck(id: "extension", title: "macFUSE file system extension", level: "unknown",
+                         detail: "Not checked. Checking requires a test mount."),
+        RequirementCheck(id: "filevault", title: "FileVault", level: "ok", detail: "Enabled."),
         RequirementCheck(id: "icloud", title: "iCloud Drive", level: "warning",
-                         detail: "Niedostępny. Backup nie zrobi kopii udziału A, więc utrata Maca = utrata danych.",
-                         fixLabel: "Otwórz ustawienia iCloud", fixURL: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings:icloud"),
+                         detail: "Unavailable. Backup won't make a copy of share A, so losing the Mac = losing data.",
+                         fixLabel: "Open iCloud settings", fixURL: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings:icloud"),
     ])
     for dark in [false, true] {
-        save(RequirementsView(result: r, checking: false, onRecheck: {}, onClose: {}), "wymagania", dark: dark)
+        save(RequirementsView(result: r, checking: false, onRecheck: {}, onClose: {}), "requirements", dark: dark)
     }
 }
 
