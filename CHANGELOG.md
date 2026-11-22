@@ -4,6 +4,11 @@ A chronological record of what was actually delivered. Entries are ordered by da
 
 ## 2026-11-22
 
+### License: AGPL-3.0
+
+- `LICENSE` with the official text of the GNU Affero General Public License v3 (owner's choice); README section "License": AGPL-3.0 or later, copyright Michal Sobczak, macFUSE not bundled and loaded at runtime under its own license.
+- Public repository: https://github.com/michalasobczak/xordock
+
 ### README rewritten as the project's front page
 
 - New README: what xordock is, why the one-time-pad construction differs from computational encryption, Shannon's perfect-secrecy proof for the 2-of-2 XOR split, and what the proof does not cover (length, integrity, open vault, copies).

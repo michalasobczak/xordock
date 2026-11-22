@@ -208,3 +208,11 @@ Gate tests live next to the code (`*_test.go`, `macos/Tests`). E2E runs on real 
 | [S010](specs/S010-samouczek.md) | Tutorial: introduction and guidance through actions | delivered; walkthrough pending owner review |
 | [S011](specs/S011-sprawdzanie-wymagan.md) | Requirements check at launch | delivered |
 | [S012](specs/S012-wersja-angielska.md) | English version of the project | delivered |
+
+## License
+
+Copyright (C) 2026 Michal Sobczak
+
+xordock is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+Third-party components are not bundled: macFUSE (and its `libfuse3`) is installed by the user and loaded at runtime under its own license; the Go standard library and Apple frameworks keep their own licenses.
