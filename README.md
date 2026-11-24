@@ -4,6 +4,10 @@
 
 xordock is a macOS app that gives you an ordinary folder in Finder. Everything you put there is split with XOR into two shares: **share A** stays on your Mac, **share B** lives on a removable SD card or USB stick. Pull the card out and there is nothing on the Mac to read. Lose the card and the finder holds noise. Put the card back and the folder is there again.
 
+<p align="center">
+  <img src="docs/promo/xordock.gif" width="720" alt="Animated tour of xordock: every file is XOR-split into two halves, each half alone is random noise">
+</p>
+
 ```
    your file M ──┐
                  ├─► A = M ⊕ R  ──► Mac (SSD)          + copy in iCloud Drive

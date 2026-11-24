@@ -2,6 +2,12 @@
 
 A chronological record of what was actually delivered. Entries are ordered by date, newest first.
 
+## 2026-11-24
+
+### README: animated GIF on the front page
+
+- `docs/promo/xordock.gif` (800×576, owner's recording) shown under the README introduction.
+
 ## 2026-11-22
 
 ### S013: clear state after the working card is removed
